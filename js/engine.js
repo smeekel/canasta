@@ -3,7 +3,7 @@
  * 2 players draw two and need two canastas; 3 play cutthroat; 4 play as partners.
  *
  * House rules are one game, everyone alone. The pack is (players + 1) decks.
- * Each player has a hand and a foot of 13. Going out takes a pure canasta,
+ * Each player has a hand and a foot of 13 and draws two cards. Going out takes a pure canasta,
  * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
  * State is mutated in place. apply() returns {ok:true} or {ok:false, error}.
@@ -236,8 +236,8 @@ function teamOf(state, player = current(state)) {
 }
 
 function drawsNeeded(state) {
-  if (isHouse(state)) return 1
-  return state.playerCount === 2 ? 2 : 1
+  if (isHouse(state) || state.playerCount === 2) return 2
+  return 1
 }
 
 function handSizeFor(state) {

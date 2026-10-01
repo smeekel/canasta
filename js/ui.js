@@ -213,7 +213,8 @@ function hint() {
   if (match.phase === "draw") {
     if (match.mayDecline) return "The stock is empty. Take the discard, or end the hand."
     const info = discardInfo(match, 0)
-    return info.canTake ? "Draw from the stock, or take the discard pile." : `Draw from the stock. ${info.reason}`
+    const draw = match.rules === "house" ? "Draw two cards from the stock" : "Draw from the stock"
+    return info.canTake ? `${draw}, or take the discard pile.` : `${draw}. ${info.reason}`
   }
   const team = myTeam()
   if (!team.opened) return `Your opening meld needs ${openingRequirement(team.total)} points. You can also discard without melding.`
@@ -288,7 +289,7 @@ function rulesHtml() {
   const body = house
     ? `<p>House rules is one game. Everyone scores alone, even with four players. The pack is one more deck than there are players, and each deck is 52 cards plus two jokers. Jokers and twos are wild.</p>
     <ul>
-      <li>You are dealt 13 cards and a face-down foot of 13. Draw one card, meld if you want, then discard.</li>
+      <li>You are dealt 13 cards and a face-down foot of 13. Draw two cards, meld if you want, then discard one.</li>
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
       <li>A pure canasta is seven or more cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven or more wild cards (1,500). You may make as many as you like.</li>
       <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. The game also ends when the stock is used up.</li>

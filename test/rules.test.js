@@ -392,6 +392,18 @@ function asMeld(state, seat = 0) {
   }
 }
 
+test("house rules draw two cards at every table size", () => {
+  for (const opponents of [1, 2, 3]) {
+    const state = houseDeal(opponents, 11)
+    const seat = state.turn
+    const before = state.players[seat].hand.length
+    act(state, { type: "draw" })
+    assert.equal(state.players[seat].hand.length, before + 2)
+    assert.match(state.status, /two cards/)
+    assert.equal(state.phase, "meld")
+  }
+})
+
 test("house rules deal a larger pack and a foot, with no partnerships", () => {
   for (const [opponents, decks] of [
     [1, 3],
