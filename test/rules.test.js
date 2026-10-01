@@ -3,6 +3,7 @@ import test from "node:test"
 import {
   HANDS_PER_MATCH,
   apply,
+  canastaBreakdown,
   canastasNeeded,
   cardPoints,
   createMatch,
@@ -20,14 +21,14 @@ function allCards(state) {
   return [
     ...state.stock,
     ...state.discard,
-    ...state.players.flatMap((player) => player.hand),
+    ...state.players.flatMap((player) => [...player.hand, ...(player.foot || [])]),
     ...state.teams.flatMap((team) => [...team.redThrees, ...team.melds.flatMap((meld) => meld.cards)]),
   ]
 }
 
 function extract(state, pred, count = Infinity) {
   const found = []
-  const piles = [state.stock, state.discard, ...state.players.map((player) => player.hand)]
+  const piles = [state.stock, state.discard, ...state.players.flatMap((player) => [player.hand, player.foot].filter(Boolean))]
   for (const team of state.teams) {
     piles.push(team.redThrees)
     for (const meld of team.melds) piles.push(meld.cards)
@@ -44,7 +45,10 @@ function scoop(state) {
   const cards = allCards(state)
   state.stock = []
   state.discard = []
-  for (const player of state.players) player.hand = []
+  for (const player of state.players) {
+    player.hand = []
+    if (player.foot) player.foot = []
+  }
   for (const team of state.teams) {
     team.redThrees = []
     team.melds = []
@@ -121,6 +125,10 @@ test("meld shape: two naturals, at most three wilds, no lone wilds", () => {
   assert.equal(describeMeld([n(4), n(4, "h"), n(4, "d")]).points, 15)
   assert.equal(describeMeld([n(3, "s"), n(3, "c"), n(3, "s")]).ok, false)
   assert.equal(describeMeld([n(3, "s"), n(3, "c"), n(3, "s")], true).ok, true)
+  const wilds = [n(2, "s"), n(2, "h"), n(2, "d"), n(2, "c"), n(0, "r"), n(0, "b"), n(2, "s")]
+  assert.equal(describeMeld(wilds).ok, false)
+  assert.equal(describeMeld(wilds, false, true).wild, true)
+  assert.equal(describeMeld(wilds, false, true).rank, -1)
 })
 
 test("card points", () => {
@@ -359,6 +367,170 @@ test("a match is four hands", () => {
   act(state, { type: "decline" })
   assert.equal(state.phase, "matchEnd")
   assert.equal(state.history.length, HANDS_PER_MATCH)
+})
+
+function houseDeal(opponents = 1, seed = 1) {
+  const state = createMatch({ opponents, seed, rules: "house" })
+  act(state, { type: "deal" })
+  return state
+}
+
+function asMeld(state, seat = 0) {
+  state.turn = seat
+  state.phase = "meld"
+  state.mustTake = false
+  state.mayDecline = false
+  state.out = null
+  state.turnState = {
+    drewFromStock: true,
+    tookPile: false,
+    laidOff: false,
+    madeCanasta: false,
+    hadMelded: true,
+    initialRanks: state.teams[state.players[seat].team].melds.map((meld) => meld.rank),
+    snapshot: null,
+  }
+}
+
+test("house rules deal a larger pack and a foot, with no partnerships", () => {
+  for (const [opponents, decks] of [
+    [1, 3],
+    [2, 4],
+    [3, 5],
+  ]) {
+    const state = houseDeal(opponents, 5)
+    const cards = allCards(state)
+    assert.equal(cards.length, decks * 54)
+    assert.equal(new Set(cards.map((card) => card.id)).size, cards.length)
+    assert.equal(cards.filter((card) => card.rank === 0).length, decks * 2)
+    assert.equal(state.teams.length, opponents + 1)
+    state.players.forEach((player, index) => {
+      assert.equal(player.team, index)
+      assert.equal(player.hand.length, 13)
+      assert.equal(player.foot.length, 13)
+      assert.equal(player.hand.some(isRedThree), false)
+    })
+    const top = state.discard.at(-1)
+    assert.equal(isWild(top) || isRedThree(top), false)
+  }
+})
+
+test("a house game ends when the stock is used up", () => {
+  const state = houseDeal(2, 1)
+  state.phase = "draw"
+  state.mayDecline = true
+  state.stock = []
+  act(state, { type: "decline" })
+  assert.equal(state.phase, "matchEnd")
+  assert.equal(state.history.length, 1)
+  assert.equal(state.endReason, "stock")
+})
+
+test("emptying the hand picks up the foot instead of going out", () => {
+  const state = houseDeal(1, 4)
+  const eights = extract(state, (card) => card.rank === 8, 3)
+  const nines = extract(state, (card) => card.rank === 9, 5)
+  const fours = extract(state, (card) => card.rank === 4, 3)
+  const rest = scoop(state)
+  state.stock = rest
+  state.players[0].hand = eights
+  state.players[0].foot = nines
+  state.teams[0].opened = true
+  state.teams[0].melds = [{ rank: 4, cards: fours }]
+  asMeld(state)
+  act(state, { type: "meld", cardIds: eights.map((card) => card.id) })
+  assert.equal(state.phase, "meld")
+  assert.equal(state.turn, 0)
+  assert.equal(state.players[0].foot.length, 0)
+  assert.deepEqual(
+    state.players[0].hand.map((card) => card.id).sort(),
+    nines.map((card) => card.id).sort()
+  )
+
+  state.players[0].hand = [nines[0]]
+  state.players[0].foot = nines.slice(1)
+  const result = apply(state, { type: "discard", cardId: nines[0].id })
+  assert.equal(result.ok, true, result.error)
+  assert.equal(state.phase, "draw")
+  assert.equal(state.turn, 1)
+  assert.equal(state.players[0].foot.length, 0)
+  assert.equal(state.phase === "matchEnd", false)
+})
+
+test("going out takes one pure, one mixed, and one wild canasta, and more are allowed", () => {
+  const state = houseDeal(1, 6)
+  const fours = extract(state, (card) => card.rank === 4, 7)
+  const sevens = extract(state, (card) => card.rank === 7, 7)
+  const kings = extract(state, (card) => card.rank === 13, 6)
+  const joker = extract(state, (card) => card.rank === 0, 1)
+  const twos = extract(state, (card) => card.rank === 2, 14)
+  const eight = extract(state, (card) => card.rank === 8, 1)
+  scoop(state)
+  const player = state.players[0]
+  player.foot = []
+  player.hand = eight
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: 4, cards: fours },
+    { rank: 13, cards: [...kings, ...joker] },
+  ]
+  asMeld(state)
+  const early = apply(state, { type: "discard", cardId: eight[0].id })
+  assert.equal(early.ok, false)
+  assert.match(early.error, /wild canasta/)
+  assert.equal(player.hand.length, 1)
+
+  state.teams[0].melds.push({ rank: 7, cards: sevens }, { rank: -1, cards: twos.slice(0, 7) })
+  player.foot = twos.slice(7, 10)
+  const held = apply(state, { type: "goOut", cardId: eight[0].id })
+  assert.equal(held.ok, false)
+  assert.match(held.error, /foot/)
+  assert.equal(state.phase, "meld")
+
+  player.foot = []
+  act(state, { type: "discard", cardId: eight[0].id })
+  assert.equal(state.phase, "matchEnd")
+  assert.equal(state.endReason, "out")
+  const line = state.handSummary.lines.find((item) => item.team === 0)
+  assert.equal(line.natural, 2)
+  assert.equal(line.mixed, 1)
+  assert.equal(line.wild, 1)
+  assert.equal(line.going, 100)
+  assert.ok(line.delta >= 500 * 2 + 300 + 1500)
+})
+
+test("a finished wild canasta can be followed by another", () => {
+  const state = houseDeal(1, 7)
+  const twos = extract(state, (card) => card.rank === 2, 12)
+  const jokers = extract(state, (card) => card.rank === 0, 2)
+  const filler = extract(state, (card) => card.rank === 8, 2)
+  const fours = extract(state, (card) => card.rank === 4, 3)
+  scoop(state)
+  state.players[0].hand = [...twos, ...jokers, ...filler]
+  state.players[0].foot = []
+  state.teams[0].opened = true
+  state.teams[0].melds = [{ rank: 4, cards: fours }]
+  asMeld(state)
+  act(state, { type: "meld", cardIds: twos.slice(0, 7).map((card) => card.id) })
+  act(state, { type: "meld", cardIds: [...twos.slice(7), ...jokers].map((card) => card.id) })
+  assert.equal(canastaBreakdown(state.teams[0].melds).wild, 2)
+  assert.equal(state.phase, "meld")
+})
+
+test("AI finishes a house-rules game", () => {
+  for (const opponents of [1, 2, 3]) {
+    const state = createMatch({ opponents, seed: opponents + 3, rules: "house" })
+    act(state, { type: "deal" })
+    let guard = 0
+    while (state.phase !== "matchEnd" && guard++ < 3000) {
+      const plan = planTurn(state)
+      assert.equal(plan.ok, true, plan.error)
+      for (const action of plan.actions) act(state, action)
+    }
+    assert.equal(state.phase, "matchEnd")
+    assert.ok(state.endReason === "stock" || state.endReason === "out")
+    assert.equal(state.history.length, 1)
+  }
 })
 
 test("AI finishes matches for every table size", () => {

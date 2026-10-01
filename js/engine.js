@@ -1,16 +1,20 @@
 /**
- * Classic Canasta (Bicycle / Pagat), match of four hands.
+ * Canasta table. Classic mode is Bicycle / Pagat, a match of four hands:
+ * 2 players draw two and need two canastas; 3 play cutthroat; 4 play as partners.
  *
- * 2 players: 15 cards, draw two, discard one, two canastas to go out.
- * 3 players: cutthroat, 13 cards, one canasta to go out.
- * 4 players: partnerships (seats 0+2 vs 1+3), 11 cards, one canasta.
+ * House rules are one game, everyone alone. The pack is (players + 1) decks.
+ * Each player has a hand and a foot of 13. Going out takes a pure canasta,
+ * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
  * State is mutated in place. apply() returns {ok:true} or {ok:false, error}.
  */
 
 export const HANDS_PER_MATCH = 4
+export const WILD_RANK = -1
+export const WILD_CANASTA = 1500
 
 const RANK_NAME = {
+  [-1]: "Wild",
   0: "Joker",
   1: "Ace",
   2: "Two",
@@ -90,8 +94,29 @@ export function canastasNeeded(state) {
   return state.playerCount === 2 ? 2 : 1
 }
 
+export function isHouse(state) {
+  return state?.rules === "house"
+}
+
+export function canastaBreakdown(melds) {
+  const tally = { pure: 0, mixed: 0, wild: 0 }
+  for (const meld of melds || []) {
+    if (meld.rank === 3 || meld.cards.length < 7) continue
+    if (meld.rank < 0) tally.wild += 1
+    else if (meld.cards.some(isWild)) tally.mixed += 1
+    else tally.pure += 1
+  }
+  return tally
+}
+
+export function meetsGoOut(state, melds) {
+  if (!isHouse(state)) return countCanastas(melds) >= canastasNeeded(state)
+  const tally = canastaBreakdown(melds)
+  return tally.pure >= 1 && tally.mixed >= 1 && tally.wild >= 1
+}
+
 export function sideName(state, teamId) {
-  if (state.playerCount === 4) return teamId === 0 ? "Your side" : "Opponents"
+  if (!isHouse(state) && state.playerCount === 4) return teamId === 0 ? "Your side" : "Opponents"
   const player = state.players.find((p) => p.team === teamId)
   return player ? player.name : "Side"
 }
@@ -108,12 +133,16 @@ export function sortHand(cards) {
   return cards.slice().sort((a, b) => order(a) - order(b) || suitOrder[a.suit] - suitOrder[b.suit] || a.deck - b.deck)
 }
 
-export function describeMeld(cards, allowBlack = false) {
+export function describeMeld(cards, allowBlack = false, allowWild = false) {
   if (!cards || cards.length < 3) return { ok: false, error: "A meld needs at least 3 cards." }
   const wilds = cards.filter(isWild)
   const naturals = cards.filter(isNatural)
   const blacks = cards.filter(isBlackThree)
   if (cards.some(isRedThree)) return { ok: false, error: "Red threes stay on the table as bonus cards." }
+  if (allowWild && cards.every(isWild)) {
+    const points = cards.reduce((sum, card) => sum + cardPoints(card), 0)
+    return { ok: true, rank: WILD_RANK, wild: true, black: false, points, wildCount: cards.length, pure: false }
+  }
   if (blacks.length) {
     if (!allowBlack) return { ok: false, error: "Black threes can be melded only when you go out." }
     if (blacks.length !== cards.length || blacks.length > 4) {
@@ -156,15 +185,20 @@ function shuffle(state, cards) {
   return cards
 }
 
+function packCount(state) {
+  return isHouse(state) ? state.playerCount + 1 : 2
+}
+
 function freshDeck(state) {
+  const decks = packCount(state)
   const cards = []
   let id = 1
   for (const suit of ["s", "h", "d", "c"]) {
     for (let rank = 1; rank <= 13; rank++) {
-      for (let deck = 0; deck < 2; deck++) cards.push({ id: id++, rank, suit, deck })
+      for (let deck = 0; deck < decks; deck++) cards.push({ id: id++, rank, suit, deck })
     }
   }
-  for (let deck = 0; deck < 2; deck++) {
+  for (let deck = 0; deck < decks; deck++) {
     cards.push({ id: id++, rank: 0, suit: "r", deck })
     cards.push({ id: id++, rank: 0, suit: "b", deck })
   }
@@ -202,13 +236,62 @@ function teamOf(state, player = current(state)) {
 }
 
 function drawsNeeded(state) {
+  if (isHouse(state)) return 1
   return state.playerCount === 2 ? 2 : 1
 }
 
-function handSizeFor(playerCount) {
-  if (playerCount === 2) return 15
-  if (playerCount === 3) return 13
+function handSizeFor(state) {
+  if (isHouse(state)) return 13
+  if (state.playerCount === 2) return 15
+  if (state.playerCount === 3) return 13
   return 11
+}
+
+function handsLimit(state) {
+  return isHouse(state) ? 1 : HANDS_PER_MATCH
+}
+
+function hasFoot(player) {
+  return !!player.foot?.length
+}
+
+function goOutMessage(state) {
+  if (!isHouse(state)) {
+    return canastasNeeded(state) === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out."
+  }
+  return "You need a pure canasta, a mixed canasta, and a wild canasta before you can go out."
+}
+
+function blockEmpty(state, player, handAfter, meldsAfter) {
+  if (hasFoot(player)) return null
+  const ready = meetsGoOut(state, meldsAfter)
+  if (ready) return null
+  if (handAfter === 0) return fail(goOutMessage(state))
+  if (handAfter < 2) {
+    return fail(
+      isHouse(state)
+        ? "Keep two cards until you have a pure, a mixed, and a wild canasta."
+        : "Keep two cards until your side has a canasta — one to discard, and one still in hand."
+    )
+  }
+  return null
+}
+
+function pickupFoot(state, player) {
+  if (player.hand.length || !hasFoot(player)) return false
+  player.hand = player.foot
+  player.foot = []
+  replaceReds(state, player)
+  return true
+}
+
+function meldLabel(rank) {
+  return rank < 0 ? "wild cards" : `${RANK_NAME[rank].toLowerCase()}s`
+}
+
+function nextWildRank(team) {
+  const ranks = team.melds.filter((meld) => meld.rank < 0).map((meld) => meld.rank)
+  return ranks.length ? Math.min(...ranks) - 1 : WILD_RANK
 }
 
 export function countCanastas(melds) {
@@ -284,14 +367,6 @@ export function freezeCard(state) {
   return state.discard.find((card) => isWild(card) || isRedThree(card)) || null
 }
 
-function keepError(handCount, canastas, needed) {
-  if (canastas >= needed) return null
-  if (handCount < 2) {
-    return "Keep two cards until your side has a canasta — one to discard, and one still in hand."
-  }
-  return null
-}
-
 function pull(hand, ids) {
   const want = new Set(ids)
   if (want.size !== ids.length) return { ok: false, error: "Each card can be used only once." }
@@ -342,16 +417,19 @@ export function evaluateScores(state) {
   return state.teams.map((team, teamId) => {
     let natural = 0
     let mixed = 0
+    let wild = 0
     let melded = 0
     for (const meld of team.melds) {
       melded += meld.cards.reduce((sum, card) => sum + cardPoints(card), 0)
-      if (meld.rank === 3 || meld.cards.length < 7) continue
-      if (meld.cards.some(isWild)) mixed += 1
+    if (meld.rank === 3 || meld.cards.length < 7) continue
+    if (meld.rank < 0) wild += 1
+      else if (meld.cards.some(isWild)) mixed += 1
       else natural += 1
     }
     const opened = team.melds.length > 0
     const reds = team.redThrees.length
-    let redScore = reds === 4 ? 800 : reds * 100
+    const packReds = packCount(state) * 2
+    let redScore = reds === packReds && reds > 0 ? reds * 200 : reds * 100
     if (!opened) redScore = -redScore
     let going = 0
     if (state.out && state.players[state.out.player].team === teamId) {
@@ -361,13 +439,15 @@ export function evaluateScores(state) {
     for (const player of state.players) {
       if (player.team !== teamId) continue
       penalty += player.hand.reduce((sum, card) => sum + cardPoints(card), 0)
+      penalty += (player.foot || []).reduce((sum, card) => sum + cardPoints(card), 0)
     }
-    const delta = natural * 500 + mixed * 300 + redScore + going + melded - penalty
+    const delta = natural * 500 + mixed * 300 + wild * WILD_CANASTA + redScore + going + melded - penalty
     return {
       team: teamId,
       name: sideName(state, teamId),
       natural,
       mixed,
+      wild,
       reds,
       redScore,
       going,
@@ -394,7 +474,7 @@ function endHand(state, reason) {
     lines,
   }
   state.history.push(state.handSummary)
-  state.phase = state.handNumber >= HANDS_PER_MATCH ? "matchEnd" : "handEnd"
+  state.phase = state.handNumber >= handsLimit(state) ? "matchEnd" : "handEnd"
   state.turnState = null
   state.mustTake = false
   state.mayDecline = false
@@ -417,12 +497,11 @@ function absorbRest(state, player, team) {
 function replaceReds(state, player) {
   const team = state.teams[player.team]
   let guard = 0
-  while (guard++ < 8) {
+  while (guard++ < 40) {
     const index = player.hand.findIndex(isRedThree)
     if (index < 0) return
-    const [card] = player.hand.splice(index, 1)
-    team.redThrees.push(card)
-    if (!state.stock.length) return
+    team.redThrees.push(player.hand.splice(index, 1)[0])
+    if (!state.stock.length) continue
     player.hand.push(state.stock.pop())
   }
 }
@@ -454,7 +533,8 @@ function advanceTurn(state) {
   prepareTurn(state)
 }
 
-export function createMatch({ opponents = 3, seed = 1 } = {}) {
+export function createMatch({ opponents = 3, seed = 1, rules = "classic" } = {}) {
+  const house = rules === "house"
   const playerCount = opponents + 1
   if (playerCount < 2 || playerCount > 4) throw new Error("Choose 1, 2, or 3 AI opponents.")
   const names =
@@ -462,13 +542,15 @@ export function createMatch({ opponents = 3, seed = 1 } = {}) {
   const players = names.map((name, index) => ({
     name,
     isHuman: index === 0,
-    team: playerCount === 4 ? index % 2 : index,
+    team: !house && playerCount === 4 ? index % 2 : index,
     hand: [],
+    foot: [],
     hasMelded: false,
   }))
-  const teamCount = playerCount === 4 ? 2 : playerCount
+  const teamCount = !house && playerCount === 4 ? 2 : playerCount
   const state = {
     seed: seed >>> 0 || 1,
+    rules: house ? "house" : "classic",
     playerCount,
     handNumber: 0,
     dealer: 0,
@@ -494,7 +576,7 @@ export function createMatch({ opponents = 3, seed = 1 } = {}) {
 
 function dealHand(state) {
   if (state.phase !== "new" && state.phase !== "handEnd") return fail("The next hand is not ready.")
-  if (state.handNumber >= HANDS_PER_MATCH) {
+  if (state.handNumber >= handsLimit(state)) {
     state.phase = "matchEnd"
     return ok()
   }
@@ -502,6 +584,7 @@ function dealHand(state) {
   if (state.handNumber > 1) state.dealer = (state.dealer + 1) % state.playerCount
   for (const player of state.players) {
     player.hand = []
+    player.foot = []
     player.hasMelded = false
   }
   for (const team of state.teams) {
@@ -514,11 +597,18 @@ function dealHand(state) {
   state.endReason = null
   state.handSummary = null
   state.stock = freshDeck(state)
-  const size = handSizeFor(state.playerCount)
+  const size = handSizeFor(state)
   let seat = (state.dealer + 1) % state.playerCount
   for (let i = 0; i < size * state.playerCount; i++) {
     state.players[seat].hand.push(state.stock.pop())
     seat = (seat + 1) % state.playerCount
+  }
+  if (isHouse(state)) {
+    seat = (state.dealer + 1) % state.playerCount
+    for (let i = 0; i < size * state.playerCount; i++) {
+      state.players[seat].foot.push(state.stock.pop())
+      seat = (seat + 1) % state.playerCount
+    }
   }
   while (state.stock.length) {
     const card = state.stock.pop()
@@ -533,7 +623,13 @@ function dealHand(state) {
   state.turn = (state.dealer + 1) % state.playerCount
   const reqs = state.teams.map((team) => openingRequirement(team.total)).join(" / ")
   const dealer = state.players[state.dealer]
-  say(state, `Hand ${state.handNumber} of ${HANDS_PER_MATCH}. ${actor(dealer)} ${act(dealer, "deal", "deals")}. Opening count: ${reqs}.`)
+  const dealt = `${actor(dealer)} ${act(dealer, "deal", "deals")}. Opening count: ${reqs}.`
+  say(
+    state,
+    isHouse(state)
+      ? `House rules, ${packCount(state)} decks. ${dealt}`
+      : `Hand ${state.handNumber} of ${HANDS_PER_MATCH}. ${dealt}`
+  )
   prepareTurn(state)
   return ok()
 }
@@ -601,6 +697,10 @@ function commitLayoffTake(state) {
   player.hasMelded = true
   const madeCanasta = before < 7 && meld.cards.length >= 7
   beginMeld(state, { tookPile: true, laidOff: true, madeCanasta, hadMelded, initialRanks })
+  if (!player.hand.length && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "take", "takes")} the discard pile and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    return ok()
+  }
   say(state, `${actor(player)} ${act(player, "take", "takes")} the discard pile.`)
   if (!player.hand.length) finishOut(state)
   return ok()
@@ -633,12 +733,12 @@ function commitGroupedTake(state, groups) {
   const built = []
   for (const cards of chunks) {
     const withTop = cards === match ? [...cards, top] : cards
-    const parsed = describeMeld(withTop)
+    const parsed = describeMeld(withTop, false, isHouse(state))
     if (!parsed.ok) return fail(parsed.error)
     if (built.some((meld) => meld.rank === parsed.rank)) return fail("Only one meld of each rank.")
     const existing = team.melds.find((meld) => meld.rank === parsed.rank)
     if (existing) {
-      const merged = describeMeld([...existing.cards, ...withTop])
+      const merged = describeMeld([...existing.cards, ...withTop], false, isHouse(state))
       if (!merged.ok) return fail(merged.error)
     }
     built.push({ rank: parsed.rank, cards: withTop, points: parsed.points, merge: !!existing })
@@ -659,11 +759,8 @@ function commitGroupedTake(state, groups) {
     if (meld.merge) meldsAfter.find((item) => item.rank === meld.rank).cards.push(...meld.cards)
     else meldsAfter.push({ rank: meld.rank, cards: meld.cards })
   }
-  const canastas = countCanastas(meldsAfter)
-  const needed = canastasNeeded(state)
-  if (handAfter === 0 && canastas < needed) return fail(needed === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
-  const held = keepError(handAfter, canastas, needed)
-  if (handAfter !== 0 && held) return fail(held)
+  const blocked = blockEmpty(state, player, handAfter, meldsAfter)
+  if (blocked) return blocked
 
   player.hand = player.hand.filter((card) => !allIds.includes(card.id))
   let madeCanasta = false
@@ -685,6 +782,10 @@ function commitGroupedTake(state, groups) {
   team.opened = true
   player.hasMelded = true
   beginMeld(state, { tookPile: true, laidOff, madeCanasta, hadMelded, initialRanks })
+  if (!player.hand.length && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "take", "takes")} the discard pile and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    return ok()
+  }
   say(state, `${actor(player)} ${act(player, "take", "takes")} the discard pile.`)
   if (!player.hand.length) finishOut(state)
   return ok()
@@ -721,7 +822,7 @@ function open(state, groups = [], discardId = null) {
   const built = []
   for (const ids of groups) {
     const cards = ids.map((id) => player.hand.find((card) => card.id === id))
-    const parsed = describeMeld(cards)
+    const parsed = describeMeld(cards, false, isHouse(state))
     if (!parsed.ok) return fail(parsed.error)
     if (built.some((meld) => meld.rank === parsed.rank)) return fail("Only one meld of each rank.")
     built.push({ rank: parsed.rank, cards, points: parsed.points })
@@ -729,30 +830,28 @@ function open(state, groups = [], discardId = null) {
   const points = built.reduce((sum, meld) => sum + meld.points, 0)
   const required = openingRequirement(team.total)
   const handAfter = leftover.length
-  const canastas = built.filter((meld) => meld.cards.length >= 7).length
-  const needed = canastasNeeded(state)
-  const goingOut = handAfter === 0
+  const projected = built.map((meld) => ({ rank: meld.rank, cards: meld.cards }))
+  const ready = meetsGoOut(state, projected)
+  const goingOut = handAfter === 0 && !hasFoot(player)
   const waiver =
-    goingOut &&
-    state.turnState.drewFromStock &&
-    !state.turnState.hadMelded &&
-    !state.turnState.laidOff &&
-    canastas >= needed
+    goingOut && state.turnState.drewFromStock && !state.turnState.hadMelded && !state.turnState.laidOff && ready
   if (points < required && !waiver) {
     return fail(`Opening meld needs ${required} points. That selection is ${points}.`)
   }
-  if (goingOut && canastas < needed) {
-    return fail(needed === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
-  }
-  const held = keepError(handAfter, canastas, needed)
-  if (!goingOut && held) return fail(held)
+  const blocked = blockEmpty(state, player, handAfter, projected)
+  if (blocked) return blocked
 
   player.hand = leftover.slice()
   for (const meld of built) team.melds.push({ rank: meld.rank, cards: meld.cards })
   team.opened = true
   player.hasMelded = true
-  if (canastas > 0) state.turnState.madeCanasta = true
+  if (projected.some((meld) => meld.rank !== 3 && meld.cards.length >= 7)) state.turnState.madeCanasta = true
   if (discardCard) state.discard.push(discardCard)
+  if (!player.hand.length && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "open", "opens")} for ${points} and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    if (discardCard) advanceTurn(state)
+    return ok()
+  }
   if (goingOut) {
     if (points < required) say(state, `${actor(player)} ${act(player, "go", "goes")} out concealed.`)
     else say(state, `${actor(player)} ${act(player, "open", "opens")} for ${points} and ${act(player, "go", "goes")} out.`)
@@ -770,27 +869,35 @@ function meld(state, cardIds) {
   if (!team.opened) return fail("Meet the opening count before playing other melds.")
   const pulled = pull(player.hand, cardIds)
   if (!pulled.ok) return fail(pulled.error)
-  const parsed = describeMeld(pulled.cards)
+  const parsed = describeMeld(pulled.cards, false, isHouse(state))
   if (!parsed.ok) return fail(parsed.error)
-  if (team.melds.some((meld) => meld.rank === parsed.rank)) return fail("You already have that rank. Add to the meld.")
-  const handAfter = player.hand.length - cardIds.length
-  const canastas = countCanastas(team.melds) + (pulled.cards.length >= 7 ? 1 : 0)
-  const needed = canastasNeeded(state)
-  if (handAfter === 0 && canastas < needed) {
-    return fail(needed === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
+  const rank = parsed.rank === WILD_RANK ? nextWildRank(team) : parsed.rank
+  if (parsed.rank === WILD_RANK) {
+    if (team.melds.some((meld) => meld.rank < 0 && meld.cards.length < 7)) {
+      return fail("Add those wild cards to your wild meld.")
+    }
+  } else if (team.melds.some((meld) => meld.rank === parsed.rank)) {
+    return fail("You already have that rank. Add to the meld.")
   }
-  const held = keepError(handAfter, canastas, needed)
-  if (handAfter !== 0 && held) return fail(held)
+  const handAfter = player.hand.length - cardIds.length
+  const meldsAfter = team.melds.concat([{ rank, cards: pulled.cards }])
+  const blocked = blockEmpty(state, player, handAfter, meldsAfter)
+  if (blocked) return blocked
   player.hand = player.hand.filter((card) => !cardIds.includes(card.id))
-  team.melds.push({ rank: parsed.rank, cards: pulled.cards })
+  team.melds.push({ rank, cards: pulled.cards })
   player.hasMelded = true
   if (pulled.cards.length >= 7) state.turnState.madeCanasta = true
+  const label = meldLabel(rank)
+  if (!player.hand.length && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "meld", "melds")} ${label} and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    return ok()
+  }
   if (!player.hand.length) {
     say(state, `${actor(player)} ${act(player, "meld", "melds")} and ${act(player, "go", "goes")} out.`)
     finishOut(state)
     return ok()
   }
-  say(state, `${actor(player)} ${act(player, "meld", "melds")} ${RANK_NAME[parsed.rank].toLowerCase()}s.`)
+  say(state, `${actor(player)} ${act(player, "meld", "melds")} ${label}.`)
   return ok()
 }
 
@@ -811,33 +918,35 @@ function layoff(state, cardIds, rank) {
   const meldRank = naturals.length ? naturals[0].rank : rank
   if (meldRank == null) return fail("Choose which meld gets the wild card.")
   if (naturals.length && rank != null && rank !== meldRank) return fail("Those cards do not match that meld.")
-  const meld = team.melds.find((item) => item.rank === meldRank)
+  let meld = team.melds.find((item) => item.rank === meldRank)
+  if (meldRank < 0) {
+    meld = team.melds.find((item) => item.rank < 0 && item.cards.length < 7) || meld
+  }
   if (!meld) return fail("You have no meld of that rank.")
-  const parsed = describeMeld([...meld.cards, ...pulled.cards])
+  const parsed = describeMeld([...meld.cards, ...pulled.cards], false, isHouse(state))
   if (!parsed.ok) return fail(parsed.error)
   const before = meld.cards.length
   const handAfter = player.hand.length - cardIds.length
   const meldsAfter = team.melds.map((item) =>
     item === meld ? { rank: item.rank, cards: [...item.cards, ...pulled.cards] } : item
   )
-  const canastas = countCanastas(meldsAfter)
-  const needed = canastasNeeded(state)
-  if (handAfter === 0 && canastas < needed) {
-    return fail(needed === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
-  }
-  const held = keepError(handAfter, canastas, needed)
-  if (handAfter !== 0 && held) return fail(held)
+  const blocked = blockEmpty(state, player, handAfter, meldsAfter)
+  if (blocked) return blocked
   player.hand = player.hand.filter((card) => !cardIds.includes(card.id))
   meld.cards.push(...pulled.cards)
   player.hasMelded = true
   if (state.turnState.initialRanks?.includes(meldRank)) state.turnState.laidOff = true
   if (before < 7 && meld.cards.length >= 7) state.turnState.madeCanasta = true
+  if (!player.hand.length && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "add", "adds")} to the ${meldLabel(meldRank)} and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    return ok()
+  }
   if (!player.hand.length) {
     say(state, `${actor(player)} ${act(player, "go", "goes")} out.`)
     finishOut(state)
     return ok()
   }
-  say(state, `${actor(player)} ${act(player, "add", "adds")} to the ${RANK_NAME[meldRank].toLowerCase()}s.`)
+  say(state, `${actor(player)} ${act(player, "add", "adds")} to the ${meldLabel(meldRank)}.`)
   return ok()
 }
 
@@ -849,11 +958,14 @@ function discard(state, cardId) {
   const card = player.hand[index]
   if (isRedThree(card)) return fail("Red threes are played to the table, not discarded.")
   const going = player.hand.length === 1
-  if (going && countCanastas(teamOf(state).melds) < canastasNeeded(state)) {
-    return fail(canastasNeeded(state) === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
-  }
+  if (going && !hasFoot(player) && !meetsGoOut(state, teamOf(state).melds)) return fail(goOutMessage(state))
   player.hand.splice(index, 1)
   state.discard.push(card)
+  if (going && pickupFoot(state, player)) {
+    say(state, `${actor(player)} ${act(player, "discard", "discards")} ${cardName(card)} and ${act(player, "pick up the foot", "picks up the foot")}.`)
+    advanceTurn(state)
+    return ok()
+  }
   if (going) {
     say(state, `${actor(player)} ${act(player, "discard", "discards")} ${cardName(card)} and ${act(player, "go", "goes")} out.`)
     finishOut(state)
@@ -868,8 +980,9 @@ function goOut(state, cardId = null) {
   if (state.phase !== "meld") return fail("You cannot go out yet.")
   const player = current(state)
   const team = teamOf(state)
+  if (hasFoot(player)) return fail("Play your foot before you go out.")
+  if (!meetsGoOut(state, team.melds)) return fail(goOutMessage(state))
   if (!player.hand.length) {
-    if (countCanastas(team.melds) < canastasNeeded(state)) return fail("You need a canasta before you can go out.")
     say(state, `${actor(player)} ${act(player, "go", "goes")} out.`)
     finishOut(state)
     return ok()
@@ -885,9 +998,6 @@ function goOut(state, cardId = null) {
   const parsed = describeMeld(rest, true)
   if (!parsed.ok || !parsed.black) return fail("Meld the rest of your hand first. Black threes can go down as you go out.")
   if (team.melds.some((meld) => meld.rank === 3)) return fail("Your side already melded black threes.")
-  if (countCanastas(team.melds) < canastasNeeded(state)) {
-    return fail(canastasNeeded(state) === 2 ? "You need two canastas to go out." : "You need a canasta before you can go out.")
-  }
   team.melds.push({ rank: 3, cards: rest })
   player.hand = []
   player.hasMelded = true

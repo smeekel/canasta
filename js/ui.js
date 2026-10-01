@@ -1,6 +1,7 @@
 import { planTurn } from "./ai.js"
 import {
   apply,
+  canastaBreakdown,
   canastasNeeded,
   cardName,
   countCanastas,
@@ -11,6 +12,7 @@ import {
   isBlackThree,
   isNatural,
   isWild,
+  meetsGoOut,
   openingRequirement,
   rankLabel,
   sideName,
@@ -21,13 +23,21 @@ import {
 const app = document.querySelector("#app")
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
 const explain = {
-  1: "Two-player Canasta. Fifteen cards each, draw two, and two canastas are required to go out.",
-  2: "Three-player cutthroat. Thirteen cards each, and everyone scores alone.",
-  3: "Classic four-handed partnerships. You play with Ellis, across the table, against Mina and Noah.",
+  classic: {
+    1: "Two-player Canasta. Fifteen cards each, draw two, and two canastas are required to go out.",
+    2: "Three-player cutthroat. Thirteen cards each, and everyone scores alone.",
+    3: "Classic four-handed partnerships. You play with Ellis, across the table, against Mina and Noah.",
+  },
+  house: {
+    1: "You and Mina, each for yourself. Three decks, a hand and a foot, and one of each canasta to go out.",
+    2: "You, Mina, and Ellis, each for yourself. Four decks, and nobody has a partner.",
+    3: "Four players, each for yourself. Five decks. Partnerships are not used.",
+  },
 }
 
 const ui = {
   screen: "lobby",
+  rules: "classic",
   opponents: 3,
   selected: new Set(),
   staged: [],
@@ -92,26 +102,37 @@ function redMarks(cards) {
   return `<span class="reds" title="${cards.length} red three${cards.length === 1 ? "" : "s"}">${"♦".repeat(Math.min(4, cards.length))}</span>`
 }
 
+function meldKind(meld) {
+  if (meld.rank === 3 || meld.cards.length < 7) return ""
+  if (meld.rank < 0) return "Wild canasta"
+  if (meld.cards.some(isWild)) return "Mixed canasta"
+  return "Pure canasta"
+}
+
 function meldView(meld, mine) {
   const canasta = meld.cards.length >= 7 && meld.rank !== 3
-  const mixed = canasta && meld.cards.some(isWild)
-  const classes = ["meld", canasta ? (mixed ? "canasta mixed" : "canasta") : "", mine && ui.focusRank === meld.rank ? "on" : ""]
+  const mixed = canasta && meld.rank >= 0 && meld.cards.some(isWild)
+  const wild = canasta && meld.rank < 0
+  const classes = ["meld", canasta ? "canasta" : "", mixed ? "mixed" : "", wild ? "wild" : "", mine && ui.focusRank === meld.rank ? "on" : ""]
     .filter(Boolean)
     .join(" ")
+  const kind = meldKind(meld)
   const attrs = mine ? `data-act="focus" data-rank="${meld.rank}"` : ""
+  const title = kind ? ` title="${kind}"` : ""
   const cards = meld.cards.map((card) => cardMarkup(card, { small: true })).join("")
   const badge = `<span class="badge">${meld.cards.length}</span>`
-  const open = mine ? `<button type="button" class="${classes}" ${attrs}>` : `<div class="${classes}">`
+  const open = mine ? `<button type="button" class="${classes}" ${attrs}${title}>` : `<div class="${classes}"${title}>`
   return `${open}${cards}${badge}${mine ? "</button>" : "</div>"}`
 }
 
 function seatView(index) {
   const player = match.players[index]
   const active = match.turn === index && (match.phase === "draw" || match.phase === "meld")
-  const partner = match.playerCount === 4 && index === 2
+  const partner = match.rules !== "house" && match.playerCount === 4 && index === 2
   const label = partner ? `${player.name} · partner` : player.name
+  const foot = player.foot?.length ? ` · foot ${player.foot.length}` : ""
   return `<article class="seat${active ? " active" : ""}">
-    <div class="who"><strong>${esc(label)}</strong><span>${player.hand.length}</span></div>
+    <div class="who"><strong>${esc(label)}</strong><span>${player.hand.length}${foot}</span></div>
     ${backs(player.hand.length)}
   </article>`
 }
@@ -124,7 +145,7 @@ function meldZone(title, melds, reds, mine) {
 }
 
 function opponentZones() {
-  if (match.playerCount === 4) {
+  if (match.rules !== "house" && match.playerCount === 4) {
     const theirs = match.teams[1]
     return meldZone("Opponents", theirs.melds, theirs.redThrees, false)
   }
@@ -135,7 +156,7 @@ function opponentZones() {
 }
 
 function myZone() {
-  const title = match.playerCount === 4 ? "Your side" : "Your melds"
+  const title = match.rules !== "house" && match.playerCount === 4 ? "Your side" : "Your melds"
   return meldZone(title, myTeam().melds, myTeam().redThrees, true)
 }
 
@@ -150,7 +171,7 @@ function stagedPreview() {
       const matches = top && !usedTop && cards.some((card) => isNatural(card) && card.rank === top.rank)
       const shown = matches ? [...cards, top] : cards
       if (matches) usedTop = true
-      const parsed = describeMeld(shown)
+      const parsed = describeMeld(shown, false, match.rules === "house")
       if (parsed.ok) points += parsed.points
       return `<div class="stage-group">${shown.map((card) => cardMarkup(card, { small: true, extra: card === top ? "ghost" : "" })).join("")}<button type="button" class="x" data-act="unstage" data-index="${index}">×</button></div>`
     })
@@ -196,6 +217,13 @@ function hint() {
   }
   const team = myTeam()
   if (!team.opened) return `Your opening meld needs ${openingRequirement(team.total)} points. You can also discard without melding.`
+  if (match.rules === "house") {
+    const tally = canastaBreakdown(team.melds)
+    const bits = `Pure ${tally.pure} · Mixed ${tally.mixed} · Wild ${tally.wild}`
+    if (me().foot.length) return `${bits}. Your foot is still face down.`
+    if (!meetsGoOut(match, team.melds)) return `${bits}. One of each canasta lets you go out.`
+    return `${bits}. You can go out.`
+  }
   const have = countCanastas(team.melds)
   const need = canastasNeeded(match)
   if (have < need) return need === 2 ? "You need two canastas before you can go out." : "You need a canasta of 7 before you can go out."
@@ -234,12 +262,19 @@ function buttons() {
   const cards = selectedCards()
   if (cards.length) list.push(["meld-btn", layoffRank(cards) == null ? "Meld" : "Add to meld", true])
   list.push(["discard-btn", myHand().length === 1 ? "Discard & go out" : "Discard", false])
-  if (countCanastas(team.melds) >= canastasNeeded(match)) list.push(["go", "Go out", true])
+  const canLeave = match.rules === "house" ? meetsGoOut(match, team.melds) && !me().foot.length : countCanastas(team.melds) >= canastasNeeded(match)
+  if (canLeave) list.push(["go", "Go out", true])
   list.push(["undo", "Undo", false])
   return list
 }
 
 function layoffRank(cards) {
+  if (match.rules === "house" && cards.length && cards.every(isWild)) {
+    const wilds = myTeam().melds.filter((meld) => meld.rank < 0)
+    const incomplete = wilds.find((meld) => meld.cards.length < 7)
+    if (incomplete) return incomplete.rank
+    if (ui.focusRank < 0 && wilds.some((meld) => meld.rank === ui.focusRank)) return ui.focusRank
+  }
   const naturals = cards.filter(isNatural)
   if (naturals.length && naturals.some((card) => card.rank !== naturals[0].rank)) return null
   const rank = naturals.length ? naturals[0].rank : ui.focusRank
@@ -249,9 +284,17 @@ function layoffRank(cards) {
 }
 
 function rulesHtml() {
-  return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="rules-title">
-    <h2 id="rules-title">How to play</h2>
-    <p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
+  const house = (match?.rules || ui.rules) === "house"
+  const body = house
+    ? `<p>House rules is one game. Everyone scores alone, even with four players. The pack is one more deck than there are players, and each deck is 52 cards plus two jokers. Jokers and twos are wild.</p>
+    <ul>
+      <li>You are dealt 13 cards and a face-down foot of 13. Draw one card, meld if you want, then discard.</li>
+      <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
+      <li>A pure canasta is seven or more cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven or more wild cards (1,500). You may make as many as you like.</li>
+      <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. The game also ends when the stock is used up.</li>
+      <li>Opening counts, frozen piles, red threes, and black threes follow classic Canasta. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
+    </ul>`
+    : `<p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
     <ul>
       <li>With one opponent, draw two cards and make two canastas to go out. With two opponents, everyone plays alone. With three, you and Ellis are partners.</li>
       <li>On your turn, draw from the stock or take the whole discard pile, meld if you want, then discard one card.</li>
@@ -259,7 +302,10 @@ function rulesHtml() {
       <li>Red threes are bonuses. They are tabled automatically. Four of them score 800, and they count against a side that never melds.</li>
       <li>The pile is frozen until your side opens, and whenever a wild card or red three is in it. A frozen pile can be taken only with a natural pair. A black three on top only blocks the next take.</li>
       <li>The first meld must total 15, 50, 90, or 120 points as your score rises. Going out scores 100, or 200 if you go out concealed on the same turn you first meld.</li>
-    </ul>
+    </ul>`
+  return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="rules-title">
+    <h2 id="rules-title">How to play</h2>
+    ${body}
     <div class="actions"><button type="button" class="primary" data-act="close">Back to the table</button></div>
   </section></div>`
 }
@@ -295,6 +341,7 @@ function summaryHtml() {
       const bits = [
         item.natural ? `${item.natural} pure canasta` : "",
         item.mixed ? `${item.mixed} mixed canasta` : "",
+        item.wild ? `${item.wild} wild canasta` : "",
         item.going ? `going out ${item.going}` : "",
         `red threes ${item.redScore >= 0 ? "+" : ""}${item.redScore}`,
         `melded ${item.melded}`,
@@ -305,11 +352,12 @@ function summaryHtml() {
     .join("")
   const done = match.phase === "matchEnd"
   const winner = done ? `<p class="total">${esc(winnerText())}</p>` : ""
+  const heading = done ? (match.rules === "house" ? "Game over" : "Match over") : `Hand ${hand.hand} of 4`
   const next = done
     ? `<button type="button" class="primary" data-act="again">Play again</button>`
     : `<button type="button" class="primary" data-act="next">Next hand</button>`
   return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="sum-title">
-    <h2 id="sum-title">${done ? "Match over" : `Hand ${hand.hand} of 4`}</h2>
+    <h2 id="sum-title">${heading}</h2>
     <p>${reason}</p>
     ${lines}
     ${winner}
@@ -330,19 +378,30 @@ function lobbyHtml() {
   const choices = [1, 2, 3]
     .map((count) => `<button type="button" class="choice${ui.opponents === count ? " on" : ""}" data-opponents="${count}"><b>${count}</b><span>${count === 1 ? "opponent" : "opponents"}</span></button>`)
     .join("")
+  const modes = [
+    ["classic", "Classic", "Four hands"],
+    ["house", "House rules", "Everyone solo"],
+  ]
+    .map(
+      ([id, title, note]) =>
+        `<button type="button" class="choice${ui.rules === id ? " on" : ""}" data-rules="${id}"><b>${title}</b><span>${note}</span></button>`
+    )
+    .join("")
   const sample = [
     { rank: 1, suit: "s", deck: 0 },
     { rank: 13, suit: "h", deck: 0 },
     { rank: 12, suit: "d", deck: 0 },
     { rank: 0, suit: "r", deck: 0 },
   ]
+  const house = ui.rules === "house"
   return `<main class="lobby"><section class="panel">
-    <p class="eyebrow">Classic</p>
+    <p class="eyebrow">${house ? "House rules" : "Classic"}</p>
     <h1>Canasta</h1>
-    <p class="lede">Four hands on a green table. You, and up to three opponents.</p>
+    <p class="lede">${house ? "One game, a bigger pack, and a foot. You, and up to three opponents." : "Four hands on a green table. You, and up to three opponents."}</p>
     <div class="fan" aria-hidden="true">${sample.map((card) => cardMarkup(card)).join("")}</div>
+    <div class="choices modes" role="group" aria-label="Rules">${modes}</div>
     <div class="choices" role="group" aria-label="Number of AI opponents">${choices}</div>
-    <p class="explain">${esc(explain[ui.opponents])}</p>
+    <p class="explain">${esc(explain[ui.rules][ui.opponents])}</p>
     <div class="lobby-actions">
       <button type="button" class="primary" data-act="start">Deal the first hand</button>
       <button type="button" class="ghost" data-act="rules">How to play</button>
@@ -359,9 +418,11 @@ function tableHtml() {
   const actions = buttons()
     .map(([id, label, primary]) => `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${id}">${esc(label)}</button>`)
     .join("")
+  const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
+  const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">Canasta</div><div class="top-actions"><button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
-    <div class="scoreline"><span>Hand ${match.handNumber} of 4</span><span>${scoreText()}</span></div>
+    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions"><button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <div class="scoreline"><span>${dealLabel}</span><span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
     ${piles()}
@@ -369,6 +430,7 @@ function tableHtml() {
     ${stagedPreview()}
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
     <ul class="log">${log}</ul>
+    ${foot}
     <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}">${hand
       .map((card) => cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` }))
       .join("")}</div></div>
@@ -423,7 +485,7 @@ function stageSelection() {
   const cards = selectedCards()
   const top = ui.taking ? match.discard.at(-1) : null
   const matches = !!(top && cards.some((card) => isNatural(card) && card.rank === top.rank))
-  const parsed = describeMeld(matches ? [...cards, top] : cards)
+  const parsed = describeMeld(matches ? [...cards, top] : cards, false, match.rules === "house")
   if (!parsed.ok) {
     ui.error = parsed.error
     render()
@@ -479,7 +541,7 @@ function meldSelected() {
     doAction({ type: "layoff", cardIds: cards.map((card) => card.id), rank })
     return
   }
-  const parsed = describeMeld(cards)
+  const parsed = describeMeld(cards, false, match.rules === "house")
   if (!parsed.ok) {
     ui.error = ui.focusRank == null && cards.every(isWild) ? "Tap the meld that should receive the wild card." : parsed.error
     render()
@@ -516,7 +578,7 @@ function goOut() {
 }
 
 function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>> 0 || 1) {
-  match = createMatch({ opponents: ui.opponents, seed })
+  match = createMatch({ opponents: ui.opponents, seed, rules: ui.rules })
   apply(match, { type: "deal" })
   ui.screen = "table"
   ui.modal = null
@@ -557,10 +619,15 @@ async function runAi() {
 }
 
 function onClick(event) {
-  const node = event.target.closest("[data-act], [data-opponents]")
+  const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node || ui.busy) return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
+    render()
+    return
+  }
+  if (node.dataset.rules) {
+    ui.rules = node.dataset.rules
     render()
     return
   }
