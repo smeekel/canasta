@@ -1,6 +1,7 @@
 import {
   apply,
   canastasNeeded,
+  canastaBreakdown,
   cardPoints,
   countCanastas,
   describeMeld,
@@ -9,7 +10,9 @@ import {
   isNatural,
   isRedThree,
   isWild,
+  meetsGoOut,
   openingRequirement,
+  WILD_RANK,
 } from "./engine.js"
 
 function seat(state) {
@@ -21,9 +24,13 @@ function side(state) {
 }
 
 function partner(state) {
-  if (state.playerCount !== 4) return null
+  if (state.rules === "house" || state.playerCount !== 4) return null
   const me = seat(state)
   return state.players.find((player) => player !== me && player.team === me.team) || null
+}
+
+function footWaiting(state) {
+  return state.rules === "house" && !!seat(state).foot?.length
 }
 
 function naturalsOf(hand) {
@@ -63,7 +70,7 @@ function openingPlan(state, info = null) {
     let canastas = 0
     const used = new Set()
     for (const group of final) {
-      const parsed = describeMeld(group.cards)
+      const parsed = describeMeld(group.cards, false, state.rules === "house")
       if (!parsed.ok) return
       points += parsed.points
       if (group.cards.length >= 7) canastas += 1
@@ -74,11 +81,29 @@ function openingPlan(state, info = null) {
       }
     }
     const left = hand.filter((card) => !used.has(card.id))
-    const going = left.length <= 1
-    const waiver = fromStock && going && canastas >= needed
-    if (points < target && !waiver) return
-    if (going && canastas < needed) return
-    if (!going && left.length < 2 && canastas < needed) return
+    let going = left.length <= 1
+    if (state.rules === "house") {
+      let pure = 0
+      let mixed = 0
+      let wild = 0
+      for (const group of final) {
+        if (group.cards.length < 7) continue
+        if (group.cards.every(isWild)) wild += 1
+        else if (group.cards.some(isWild)) mixed += 1
+        else pure += 1
+      }
+      const ready = pure >= 1 && mixed >= 1 && wild >= 1
+      going = !footWaiting(state) && left.length <= 1
+      const waiver = fromStock && going && ready
+      if (points < target && !waiver) return
+      if (going && !ready) return
+      if (!footWaiting(state) && left.length < 2 && !ready) return
+    } else {
+      const waiver = fromStock && going && canastas >= needed
+      if (points < target && !waiver) return
+      if (going && canastas < needed) return
+      if (!going && left.length < 2 && canastas < needed) return
+    }
     const score = (going ? 4000 : 0) + canastas * 500 + (18 - used.size) * 8 + points
     if (!best || score > best.score) {
       best = {
@@ -159,13 +184,93 @@ function takeAction(state) {
 }
 
 function canPlace(state, removeCount, completes) {
+  const left = seat(state).hand.length - removeCount
+  if (state.rules === "house") {
+    if (left < 0) return false
+    if (footWaiting(state)) return true
+    if (meetsGoOut(state, side(state).melds)) return true
+    return left >= 2
+  }
   const have = countCanastas(side(state).melds)
   const need = canastasNeeded(state)
-  const left = seat(state).hand.length - removeCount
   const canastas = have + (completes ? 1 : 0)
   if (left === 0) return canastas >= need
   if (canastas >= need) return true
   return left >= 2
+}
+
+function houseReady(state, melds) {
+  return meetsGoOut(state, melds)
+}
+
+function houseAction(state) {
+  if (state.rules !== "house" || !side(state).opened) return null
+  const hand = seat(state).hand
+  const melds = side(state).melds
+  const kinds = canastaBreakdown(melds)
+  const wilds = hand.filter(isWild)
+  const place = (remove, after) => {
+    const left = hand.length - remove
+    if (left < 0) return false
+    if (footWaiting(state)) return true
+    if (houseReady(state, after)) return true
+    return left >= 2
+  }
+
+  const incomplete = melds.find((meld) => meld.rank < 0 && meld.cards.length < 7)
+  if (incomplete && wilds.length) {
+    const give = wilds.slice(0, Math.min(wilds.length, 7 - incomplete.cards.length))
+    const after = melds.map((meld) => (meld === incomplete ? { rank: meld.rank, cards: meld.cards.concat(give) } : meld))
+    if (place(give.length, after)) return { type: "layoff", cardIds: give.map((card) => card.id), rank: incomplete.rank }
+  }
+  if (!incomplete && wilds.length >= 7) {
+    const give = wilds.slice(0, 7)
+    const after = melds.concat([{ rank: WILD_RANK, cards: give }])
+    if (place(give.length, after)) return { type: "meld", cardIds: give.map((card) => card.id) }
+  }
+
+  for (const meld of melds) {
+    if (meld.rank === 3 || meld.rank < 0 || meld.cards.some(isWild) || meld.cards.length >= 7) continue
+    const naturals = hand.filter((card) => card.rank === meld.rank)
+    if (!naturals.length || (meld.cards.length + naturals.length < 7 && naturals.length < 3)) continue
+    const after = melds.map((item) => (item === meld ? { rank: item.rank, cards: item.cards.concat(naturals) } : item))
+    if (!place(naturals.length, after)) continue
+    return { type: "layoff", cardIds: naturals.map((card) => card.id), rank: meld.rank }
+  }
+
+  for (const [rank, cards] of naturalsOf(hand)) {
+    if (cards.length < 7 || melds.some((meld) => meld.rank === rank)) continue
+    const after = melds.concat([{ rank, cards }])
+    if (!place(cards.length, after)) continue
+    return { type: "meld", cardIds: cards.map((card) => card.id) }
+  }
+
+  if (kinds.pure >= 1 && kinds.mixed < 1 && wilds.length) {
+    const dirty = melds.find(
+      (meld) =>
+        meld.rank > 0 &&
+        meld.cards.some(isWild) &&
+        meld.cards.length < 7 &&
+        meld.cards.filter(isWild).length < 3
+    )
+    if (dirty) {
+      const after = melds.map((meld) => (meld === dirty ? { rank: meld.rank, cards: meld.cards.concat([wilds[0]]) } : meld))
+      if (place(1, after)) return { type: "layoff", cardIds: [wilds[0].id], rank: dirty.rank }
+    }
+    const starter = melds.find(
+      (meld) => meld.rank > 0 && !meld.cards.some(isWild) && meld.cards.length >= 6 && meld.cards.length < 7
+    )
+    if (starter) {
+      const after = melds.map((meld) => (meld === starter ? { rank: meld.rank, cards: meld.cards.concat([wilds[0]]) } : meld))
+      if (place(1, after)) return { type: "layoff", cardIds: [wilds[0].id], rank: starter.rank }
+    }
+    for (const [rank, cards] of naturalsOf(hand)) {
+      if (cards.length < 2 || melds.some((meld) => meld.rank === rank)) continue
+      if (!place(3, melds.concat([{ rank, cards: cards.slice(0, 2).concat(wilds[0]) }]))) continue
+      return { type: "meld", cardIds: [cards[0].id, cards[1].id, wilds[0].id] }
+    }
+  }
+  return null
 }
 
 function nextImprovement(state) {
@@ -183,14 +288,14 @@ function nextImprovement(state) {
   }
 
   for (const meld of melds) {
-    if (meld.rank === 3 || meld.cards.length >= 7) continue
+    if (meld.rank === 3 || meld.rank < 0 || meld.cards.length >= 7) continue
     const naturals = hand.filter((card) => card.rank === meld.rank)
     const wildsOn = meld.cards.filter(isWild).length
     if (meld.cards.length >= 5 && naturals.length) {
       const action = lay(naturals, meld.rank)
       if (action) return action
     }
-    if (meld.cards.length >= 6 && !naturals.length && wildsOn < 3) {
+    if (meld.cards.length >= 6 && !naturals.length && wildsOn < 3 && !(state.rules === "house" && wildsOn === 0 && canastaBreakdown(melds).pure < 1)) {
       const wild = hand.find((card) => card.rank === 2) || hand.find(isWild)
       if (wild) {
         const action = lay([wild], meld.rank)
@@ -212,9 +317,14 @@ function nextImprovement(state) {
   return null
 }
 
+function readyToLeave(state) {
+  if (state.rules === "house") return meetsGoOut(state, side(state).melds) && !footWaiting(state)
+  return countCanastas(side(state).melds) >= canastasNeeded(state)
+}
+
 function shouldDump(state) {
-  if (countCanastas(side(state).melds) < canastasNeeded(state)) return false
-  if (state.stock.length === 0) return true
+  if (!readyToLeave(state)) return false
+  if (state.rules === "house" || state.stock.length === 0) return true
   if (state.stock.length > 12) return false
   const ally = partner(state)
   if (ally && ally.hand.length > 8) return false
@@ -225,18 +335,21 @@ function dumpAction(state) {
   const hand = seat(state).hand
   const melds = side(state).melds
   const wild = hand.find((card) => card.rank === 2) || hand.find(isWild)
+  const keepWilds = state.rules === "house" && canastaBreakdown(melds).wild < 1
   for (const [rank, cards] of naturalsOf(hand)) {
     const meld = melds.find((item) => item.rank === rank)
     if (meld && cards.length) {
       const completes = meld.cards.length < 7 && meld.cards.length + cards.length >= 7
       if (canPlace(state, cards.length, completes)) return { type: "layoff", cardIds: cards.map((card) => card.id), rank }
     }
-    if (!meld && cards.length >= 2 && wild && canPlace(state, 3, false)) {
+    if (!meld && cards.length >= 2 && wild && !keepWilds && canPlace(state, 3, false)) {
       return { type: "meld", cardIds: [cards[0].id, cards[1].id, wild.id] }
     }
   }
-  if (wild) {
-    const target = melds.find((meld) => meld.rank !== 3 && meld.cards.length >= 6 && meld.cards.length < 7 && meld.cards.filter(isWild).length < 3)
+  if (wild && !keepWilds) {
+    const target = melds.find(
+      (meld) => meld.rank > 0 && meld.cards.length >= 6 && meld.cards.length < 7 && meld.cards.filter(isWild).length < 3
+    )
     if (target && canPlace(state, 1, true)) return { type: "layoff", cardIds: [wild.id], rank: target.rank }
   }
   return null
@@ -254,9 +367,9 @@ function playMelds(sim, step) {
       if (!opened.ok && plan.discardId) return
     }
   }
-  for (let guard = 0; guard < 14; guard++) {
+  for (let guard = 0; guard < 20; guard++) {
     if (sim.phase !== "meld") return
-    const action = nextImprovement(sim) || (shouldDump(sim) ? dumpAction(sim) : null)
+    const action = houseAction(sim) || nextImprovement(sim) || (shouldDump(sim) ? dumpAction(sim) : null)
     if (!action) return
     if (!step(action).ok) return
   }
@@ -264,10 +377,12 @@ function playMelds(sim, step) {
 
 function closeAction(state) {
   if (state.phase !== "meld") return null
-  if (countCanastas(side(state).melds) < canastasNeeded(state)) return null
+  if (state.rules === "house") {
+    if (footWaiting(state) || !meetsGoOut(state, side(state).melds)) return null
+  } else if (countCanastas(side(state).melds) < canastasNeeded(state)) return null
   const hand = seat(state).hand
   const ally = partner(state)
-  const near = [...naturalsOf(hand)].some(([rank, cards]) => {
+  const near = state.rules === "house" ? false : [...naturalsOf(hand)].some(([rank, cards]) => {
     const meld = side(state).melds.find((item) => item.rank === rank)
     const total = cards.length + (meld ? meld.cards.filter((card) => card.rank === rank).length : 0)
     return total >= 6 && (!meld || meld.cards.length < 7)
@@ -304,8 +419,8 @@ function discardScore(state, card) {
 
 function discardAction(state) {
   const hand = seat(state).hand
-  if (!hand.length) return { type: "goOut", cardId: null }
-  if (hand.length === 1 && countCanastas(side(state).melds) >= canastasNeeded(state)) {
+  if (!hand.length) return footWaiting(state) ? null : { type: "goOut", cardId: null }
+  if (hand.length === 1 && (readyToLeave(state) || footWaiting(state))) {
     return { type: "discard", cardId: hand[0].id }
   }
   let best = null
