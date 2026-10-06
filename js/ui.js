@@ -4,6 +4,7 @@ import {
   canastaBreakdown,
   canastasNeeded,
   cardName,
+  cardPoints,
   countCanastas,
   createMatch,
   describeMeld,
@@ -61,6 +62,7 @@ const ui = {
   busy: false,
   modal: null,
   summarize: false,
+  values: false,
   handScroll: 0,
 }
 
@@ -208,6 +210,32 @@ function stagedPreview() {
         )
       : ""
   return `<div class="stage"><div class="meld-head"><span>${ui.taking ? "Taking the discard" : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then meld.</p>"}</div>${open}</div>`
+}
+
+function stagedPoints(topAlreadyUsed = false) {
+  const top = ui.taking ? match.discard.at(-1) : null
+  let usedTop = topAlreadyUsed
+  let points = 0
+  for (const ids of ui.staged) {
+    const group = ids.map((id) => myHand().find((card) => card.id === id)).filter(Boolean)
+    const matches = top && !usedTop && group.some((card) => isNatural(card) && card.rank === top.rank)
+    if (matches) usedTop = true
+    points += group.reduce((sum, card) => sum + cardPoints(card), 0)
+    if (matches) points += cardPoints(top)
+  }
+  return points
+}
+
+function runningLabel(cards) {
+  const top = ui.taking ? match.discard.at(-1) : null
+  const selectionUsesTop = !!(top && cards.some((card) => isNatural(card) && card.rank === top.rank))
+  let total = cards.reduce((sum, card) => sum + cardPoints(card), 0)
+  if (selectionUsesTop) total += cardPoints(top)
+  total += stagedPoints(selectionUsesTop)
+  if (!myTeam().opened && (cards.length > 1 || ui.staged.length)) {
+    return `${total} / ${openingRequirement(myTeam().total)}`
+  }
+  return String(total)
 }
 
 function myTurn() {
@@ -512,10 +540,12 @@ function tableHtml() {
   const chosen = hand.filter((card) => ui.selected.has(card.id))
   const choice = handChoice(chosen)
   const anchorId = chosen[0]?.id
+  const total = choice && (match.phase === "meld" || ui.taking) ? runningLabel(chosen) : ""
   const cards = hand
     .map((card) => {
       const face = cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` })
-      const bubble = card.id === anchorId && choice ? pop(popButton(choice.act, choice.label, choice)) : ""
+      const chip = card.id === anchorId && total ? `<span class="points-chip">${esc(total)}</span>` : ""
+      const bubble = card.id === anchorId && choice ? pop(`${chip}${popButton(choice.act, choice.label, choice)}`) : ""
       return `<div class="card-slot">${bubble}${face}</div>`
     })
     .join("")
@@ -533,7 +563,7 @@ function tableHtml() {
   const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -545,7 +575,23 @@ function tableHtml() {
     ${foot}
     ${go}
     <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
+    ${valuesFlyout()}
   </main>`
+}
+
+function valuesFlyout() {
+  if (!ui.values) return ""
+  const rows = [
+    ["Joker", cardPoints({ rank: 0, suit: "r" })],
+    ["Ace, 2", cardPoints({ rank: 1, suit: "s" })],
+    ["King through 8", cardPoints({ rank: 13, suit: "s" })],
+    ["7 through 4, black 3", cardPoints({ rank: 7, suit: "s" })],
+  ]
+  return `<aside class="values-flyout" role="dialog" aria-label="Card values">
+    <div class="meld-head"><span>Card values</span><button type="button" class="x" data-act="values" aria-label="Close card values">×</button></div>
+    <ul>${rows.map(([name, value]) => `<li><span>${esc(name)}</span><b>${value}</b></li>`).join("")}</ul>
+    <p>Red threes are bonuses, not meld points: 100 each, or 200 each when you collect every red three in the pack.</p>
+  </aside>`
 }
 
 function modalHtml() {
@@ -990,7 +1036,12 @@ function onClick(event) {
   }
   const act = node.dataset.act
   if (act === "speed") return
-  if (act === "rules") return ((ui.modal = "rules"), render())
+  if (act === "values") {
+    ui.values = !ui.values
+    render()
+    return
+  }
+  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), render())
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
   if (act === "start" || act === "again") return startMatch()
