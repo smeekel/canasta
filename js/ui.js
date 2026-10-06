@@ -522,7 +522,7 @@ function anchorElement(key) {
 
 function anchorBox(el) {
   if (!el) return null
-  const tight = el.querySelector(".stack, .backs, .reds")
+  const tight = el.querySelector(".stack > .card, .backs .card, .reds")
   const tightRect = tight?.getBoundingClientRect()
   const rect = tightRect && tightRect.width >= 2 ? tightRect : el.getBoundingClientRect()
   return boxOf(rect)
