@@ -542,11 +542,12 @@ function tableHtml() {
   const anchorId = chosen[0]?.id
   const total = choice && (match.phase === "meld" || ui.taking) ? runningLabel(chosen) : ""
   const cards = hand
-    .map((card) => {
+    .map((card, index) => {
       const face = cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` })
       const chip = card.id === anchorId && total ? `<span class="points-chip">${esc(total)}</span>` : ""
       const bubble = card.id === anchorId && choice ? pop(`${chip}${popButton(choice.act, choice.label, choice)}`) : ""
-      return `<div class="card-slot">${bubble}${face}</div>`
+      const beforeSel = ui.selected.has(hand[index + 1]?.id) ? " before-sel" : ""
+      return `<div class="card-slot${beforeSel}">${bubble}${face}</div>`
     })
     .join("")
   const go =

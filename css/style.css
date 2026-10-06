@@ -333,7 +333,7 @@ button.undo:disabled {
 }
 .hand .card-slot:last-child .card::after,
 .hand .card.sel::after,
-.hand .card-slot:has(+ .card-slot:has(.card.sel)) .card::after { width: 100%; }
+.hand .card-slot.before-sel .card::after { width: 100%; }
 .hand .card-slot:has(.card.sel) {
   margin-left: 8px;
   margin-right: 8px;
