@@ -118,10 +118,29 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
   gap: 8px;
 }
 
-.topbar { justify-content: space-between; margin-bottom: 8px; }
+.topbar { justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; gap: 8px; }
 .brand { font-size: 1.35rem; }
-.top-actions { display: flex; gap: 6px; }
+.top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
 .top-actions button { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
+
+.speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 0.85rem;
+}
+.speed input[type="range"] {
+  width: 108px;
+  margin: 0;
+  padding: 0;
+  min-height: 32px;
+  accent-color: var(--gold);
+  background: transparent;
+  cursor: pointer;
+}
+.lobby .speed { justify-content: center; margin: 2px 0 12px; }
+.lobby .speed input[type="range"] { width: 148px; }
 
 .scoreline {
   justify-content: space-between;
@@ -325,6 +344,36 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 .card.sm .j-word { display: none; }
 .card.ghost { opacity: 0.85; outline: 1px dashed var(--gold); }
 
+.flying-target { visibility: hidden !important; }
+
+.flyer {
+  position: fixed;
+  z-index: 20;
+  margin: 0;
+  pointer-events: none;
+  perspective: 900px;
+  transform-origin: 0 0;
+}
+.flyer .turn {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+}
+.flyer .side {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flyer .side.rear { transform: rotateY(180deg); }
+.flyer .card {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  box-shadow: 0 12px 18px rgba(0, 0, 0, 0.38);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -332,7 +381,7 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
   display: grid;
   place-items: end center;
   padding: 12px;
-  z-index: 5;
+  z-index: 50;
 }
 .sheet {
   width: min(560px, 100%);
@@ -361,4 +410,5 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 
 @media (prefers-reduced-motion: reduce) {
   .card.sel { transform: none; }
+  .flyer { transition: none !important; }
 }
