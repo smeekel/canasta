@@ -148,7 +148,7 @@ function seatView(index) {
   const partner = match.rules !== "house" && match.playerCount === 4 && index === 2
   const label = partner ? `${player.name} · partner` : player.name
   const foot = player.foot?.length ? ` · foot ${player.foot.length}` : ""
-  return `<article class="seat${active ? " active" : ""}" data-anchor="seat-${index}">`
+  return `<article class="seat${active ? " active" : ""}" data-anchor="seat-${index}">
     <div class="who"><strong>${esc(label)}</strong><span>${player.hand.length}${foot}</span></div>
     ${backs(player.hand.length)}
   </article>`
