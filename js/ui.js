@@ -134,21 +134,21 @@ function meldKind(meld) {
   return "Pure canasta"
 }
 
-function meldView(meld, mine) {
+function meldView(meld, mine, pick) {
   const canasta = meld.cards.length >= 7 && meld.rank !== 3
   const mixed = canasta && meld.rank >= 0 && meld.cards.some(isWild)
   const wild = canasta && meld.rank < 0
-  const classes = ["meld", canasta ? "canasta" : "", mixed ? "mixed" : "", wild ? "wild" : "", mine && ui.focusRank === meld.rank ? "on" : ""]
+  const classes = ["meld", canasta ? "canasta" : "", mixed ? "mixed" : "", wild ? "wild" : "", mine && ui.focusRank === meld.rank ? "on" : "", pick ? "pick" : ""]
     .filter(Boolean)
     .join(" ")
   const kind = meldKind(meld)
-  const attrs = mine ? `data-act="focus" data-rank="${meld.rank}"` : ""
+  const attrs = mine ? ` data-act="focus" data-rank="${meld.rank}"` : ""
   const title = kind ? ` title="${kind}"` : ""
   const cards = meld.cards.map((card) => cardMarkup(card, { small: true })).join("")
   const badge = `<span class="badge">${meld.cards.length}</span>`
+  const add = pick ? `<button type="button" class="meld-add primary" data-act="add-wild" data-rank="${meld.rank}">Add</button>` : ""
   const anchor = `data-anchor="meld" data-rank="${meld.rank}"`
-  const open = mine ? `<button type="button" class="${classes}" ${attrs}${title} ${anchor}>` : `<div class="${classes}"${title} ${anchor}>`
-  return `${open}${cards}${badge}${mine ? "</button>" : "</div>"}`
+  return `<div class="${classes}"${attrs}${title} ${anchor}>${cards}${badge}${add}</div>`
 }
 
 function seatView(index) {
@@ -164,8 +164,9 @@ function seatView(index) {
 }
 
 function meldZone(title, melds, reds, mine, anchor) {
+  const picks = mine ? new Set(eligibleWildMelds(selectedCards()).map((meld) => meld.rank)) : new Set()
   const body = melds.length
-    ? `<div class="melds">${melds.map((meld) => meldView(meld, mine)).join("")}</div>`
+    ? `<div class="melds">${melds.map((meld) => meldView(meld, mine, picks.has(meld.rank))).join("")}</div>`
     : `<p class="empty-note">No melds yet</p>`
   return `<section class="zone" data-anchor="${anchor}"><div class="meld-head"><span>${esc(title)}</span>${redMarks(reds)}</div>${body}</section>`
 }
@@ -378,6 +379,9 @@ function hint() {
   if (!player.isHuman) return `${player.name} is playing…`
   if (myTurn() && (ui.taking || match.phase === "meld")) {
     const cards = selectedCards()
+    if (match.phase === "meld" && cards.length && cards.every(isWild) && eligibleWildMelds(cards).length > 1) {
+      return "Add the wild card to one of the highlighted melds."
+    }
     if (cards.length > 1) {
       const check = ui.taking || !myTeam().opened ? stageCheck(cards) : meldCheck(cards)
       if (!check.ok && check.error) return check.error
@@ -405,12 +409,21 @@ function hint() {
   return "You may go out by melding the rest of your hand."
 }
 
+function eligibleWildMelds(cards) {
+  if (!myTurn() || match.phase !== "meld" || ui.staged.length) return []
+  if (!cards.length || !cards.every(isWild) || !myTeam().opened) return []
+  const left = myHand().length - cards.length
+  if (left < 2 && !(left === 0 && me().foot?.length) && !canLeaveNow()) return []
+  const house = match.rules === "house"
+  return myTeam().melds.filter((meld) => describeMeld([...meld.cards, ...cards], false, house).ok)
+}
+
 function layoffRank(cards) {
-  if (match.rules === "house" && cards.length && cards.every(isWild)) {
-    const wilds = myTeam().melds.filter((meld) => meld.rank < 0)
-    const incomplete = wilds.find((meld) => meld.cards.length < 7)
-    if (incomplete) return incomplete.rank
-    if (ui.focusRank < 0 && wilds.some((meld) => meld.rank === ui.focusRank)) return ui.focusRank
+  if (cards.length && cards.every(isWild)) {
+    const targets = eligibleWildMelds(cards)
+    if (ui.focusRank != null && targets.some((meld) => meld.rank === ui.focusRank)) return ui.focusRank
+    if (targets.length === 1) return targets[0].rank
+    return null
   }
   const naturals = cards.filter(isNatural)
   if (naturals.length && naturals.some((card) => card.rank !== naturals[0].rank)) return null
@@ -1095,6 +1108,17 @@ function onClick(event) {
     ui.error = ""
     render()
     return
+  }
+  if (act === "add-wild") {
+    const cards = selectedCards()
+    const rank = Number(node.dataset.rank)
+    if (!cards.length || !eligibleWildMelds(cards).some((meld) => meld.rank === rank)) {
+      ui.error = "Select the wild cards, then choose a meld."
+      render()
+      return
+    }
+    ui.focusRank = rank
+    return doAction({ type: "layoff", cardIds: cards.map((card) => card.id), rank })
   }
   if (act === "focus") {
     const rank = Number(node.dataset.rank)

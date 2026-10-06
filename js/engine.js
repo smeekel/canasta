@@ -919,8 +919,8 @@ function layoff(state, cardIds, rank) {
   if (meldRank == null) return fail("Choose which meld gets the wild card.")
   if (naturals.length && rank != null && rank !== meldRank) return fail("Those cards do not match that meld.")
   let meld = team.melds.find((item) => item.rank === meldRank)
-  if (meldRank < 0) {
-    meld = team.melds.find((item) => item.rank < 0 && item.cards.length < 7) || meld
+  if (meldRank < 0 && !meld) {
+    meld = team.melds.find((item) => item.rank < 0 && item.cards.length < 7)
   }
   if (!meld) return fail("You have no meld of that rank.")
   const parsed = describeMeld([...meld.cards, ...pulled.cards], false, isHouse(state))
