@@ -118,7 +118,13 @@ function backs(count) {
 
 function redMarks(cards) {
   if (!cards.length) return ""
-  return `<span class="reds" title="${cards.length} red three${cards.length === 1 ? "" : "s"}">${"♦".repeat(Math.min(4, cards.length))}</span>`
+  const noun = `red three${cards.length === 1 ? "" : "s"}`
+  const label = `${cards.length} ${noun}: ${cards.map((card) => cardName(card)).join(", ")}`
+  const faces = cards
+    .slice(-4)
+    .map((card) => cardMarkup(card, { small: true }))
+    .join("")
+  return `<div class="reds" role="img" aria-label="${esc(label)}" title="${esc(label)}"><span class="red-stack">${faces}</span><span class="red-meta"><b>${cards.length}</b><span>Red ${cards.length === 1 ? "3" : "3s"}</span></span></div>`
 }
 
 function meldKind(meld) {
@@ -681,7 +687,7 @@ function anchorElement(key) {
 
 function anchorBox(el) {
   if (!el) return null
-  const tight = el.querySelector(".stack > .card, .backs .card, .reds")
+  const tight = el.querySelector(".stack > .card, .backs .card, .reds .card:last-child")
   const tightRect = tight?.getBoundingClientRect()
   const rect = tightRect && tightRect.width >= 2 ? tightRect : el.getBoundingClientRect()
   return boxOf(rect)
