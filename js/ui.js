@@ -35,9 +35,23 @@ const explain = {
   },
 }
 
+const SPEED_NAMES = ["Slowest", "Slow", "Medium", "Fast", "Fastest"]
+const SPEED_MS = [980, 700, 460, 280, 150]
+
+function loadSpeed() {
+  try {
+    const saved = Number(localStorage.getItem("canasta-motion"))
+    if (saved >= 1 && saved <= 5) return saved
+  } catch {
+    /* keep the default when storage is unavailable */
+  }
+  return 3
+}
+
 const ui = {
   screen: "lobby",
-  rules: "classic",
+  rules: "house",
+  speed: loadSpeed(),
   opponents: 3,
   selected: new Set(),
   staged: [],
@@ -46,6 +60,7 @@ const ui = {
   error: "",
   busy: false,
   modal: null,
+  summarize: false,
   handScroll: 0,
 }
 
@@ -83,7 +98,8 @@ function cardMarkup(card, { tag = "span", small = false, selected = false, extra
   const classes = ["card", red ? "red" : "black", joker ? "joker" : "", small ? "sm" : "", selected ? "sel" : "", extra]
     .filter(Boolean)
     .join(" ")
-  const open = tag === "button" ? `<button type="button" class="${classes}" aria-label="${esc(cardName(card))}" aria-pressed="${selected}" ${attrs}>` : `<span class="${classes}" aria-hidden="true" ${attrs}>`
+  const cid = card.id != null && !String(extra).includes("ghost") ? ` data-cid="${card.id}"` : ""
+  const open = tag === "button" ? `<button type="button" class="${classes}" aria-label="${esc(cardName(card))}" aria-pressed="${selected}" ${attrs}${cid}>` : `<span class="${classes}" aria-hidden="true" ${attrs}${cid}>`
   const close = tag === "button" ? "</button>" : "</span>"
   if (joker) return `${open}<span class="j-star">★</span><span class="j-word">Joker</span>${close}`
   const rank = rankLabel(card)
@@ -121,7 +137,8 @@ function meldView(meld, mine) {
   const title = kind ? ` title="${kind}"` : ""
   const cards = meld.cards.map((card) => cardMarkup(card, { small: true })).join("")
   const badge = `<span class="badge">${meld.cards.length}</span>`
-  const open = mine ? `<button type="button" class="${classes}" ${attrs}${title}>` : `<div class="${classes}"${title}>`
+  const anchor = `data-anchor="meld" data-rank="${meld.rank}"`
+  const open = mine ? `<button type="button" class="${classes}" ${attrs}${title} ${anchor}>` : `<div class="${classes}"${title} ${anchor}>`
   return `${open}${cards}${badge}${mine ? "</button>" : "</div>"}`
 }
 
@@ -131,33 +148,33 @@ function seatView(index) {
   const partner = match.rules !== "house" && match.playerCount === 4 && index === 2
   const label = partner ? `${player.name} · partner` : player.name
   const foot = player.foot?.length ? ` · foot ${player.foot.length}` : ""
-  return `<article class="seat${active ? " active" : ""}">
+  return `<article class="seat${active ? " active" : ""}" data-anchor="seat-${index}">
     <div class="who"><strong>${esc(label)}</strong><span>${player.hand.length}${foot}</span></div>
     ${backs(player.hand.length)}
   </article>`
 }
 
-function meldZone(title, melds, reds, mine) {
+function meldZone(title, melds, reds, mine, anchor) {
   const body = melds.length
     ? `<div class="melds">${melds.map((meld) => meldView(meld, mine)).join("")}</div>`
     : `<p class="empty-note">No melds yet</p>`
-  return `<section class="zone"><div class="meld-head"><span>${esc(title)}</span>${redMarks(reds)}</div>${body}</section>`
+  return `<section class="zone" data-anchor="${anchor}"><div class="meld-head"><span>${esc(title)}</span>${redMarks(reds)}</div>${body}</section>`
 }
 
 function opponentZones() {
   if (match.rules !== "house" && match.playerCount === 4) {
     const theirs = match.teams[1]
-    return meldZone("Opponents", theirs.melds, theirs.redThrees, false)
+    return meldZone("Opponents", theirs.melds, theirs.redThrees, false, "zone-1")
   }
   return match.players
     .filter((player) => !player.isHuman)
-    .map((player) => meldZone(player.name, match.teams[player.team].melds, match.teams[player.team].redThrees, false))
+    .map((player) => meldZone(player.name, match.teams[player.team].melds, match.teams[player.team].redThrees, false, `zone-${player.team}`))
     .join("")
 }
 
 function myZone() {
   const title = match.rules !== "house" && match.playerCount === 4 ? "Your side" : "Your melds"
-  return meldZone(title, myTeam().melds, myTeam().redThrees, true)
+  return meldZone(title, myTeam().melds, myTeam().redThrees, true, `zone-${me().team}`)
 }
 
 function stagedPreview() {
@@ -191,8 +208,8 @@ function piles() {
   const stockOff = match.turn !== 0 || match.phase !== "draw" || ui.taking || match.mayDecline ? "disabled" : ""
   const pileOff = match.turn !== 0 || match.phase !== "draw" || ui.taking ? "disabled" : ""
   return `<div class="piles">
-    <button type="button" class="pile" data-act="stock" ${stockOff}><span class="stack"><span class="card back"></span></span><span class="pile-meta"><b>${match.stock.length}</b>Stock</span></button>
-    <button type="button" class="pile${frozen ? " frozen" : ""}" data-act="pile" ${pileOff} title="${esc(info.reason)}"><span class="stack">${peek}${face}</span><span class="pile-meta"><b>${match.discard.length}</b>${frozen ? "Frozen" : "Discard"}</span></button>
+    <button type="button" class="pile" data-act="stock" data-anchor="stock" ${stockOff}><span class="stack"><span class="card back"></span></span><span class="pile-meta"><b>${match.stock.length}</b>Stock</span></button>
+    <button type="button" class="pile${frozen ? " frozen" : ""}" data-act="pile" data-anchor="discard" ${pileOff} title="${esc(info.reason)}"><span class="stack">${peek}${face}</span><span class="pile-meta"><b>${match.discard.length}</b>${frozen ? "Frozen" : "Discard"}</span></button>
   </div>`
 }
 
@@ -403,6 +420,7 @@ function lobbyHtml() {
     <div class="choices modes" role="group" aria-label="Rules">${modes}</div>
     <div class="choices" role="group" aria-label="Number of AI opponents">${choices}</div>
     <p class="explain">${esc(explain[ui.rules][ui.opponents])}</p>
+    ${speedControl()}
     <div class="lobby-actions">
       <button type="button" class="primary" data-act="start">Deal the first hand</button>
       <button type="button" class="ghost" data-act="rules">How to play</button>
@@ -419,10 +437,10 @@ function tableHtml() {
   const actions = buttons()
     .map(([id, label, primary]) => `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${id}">${esc(label)}</button>`)
     .join("")
-  const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
+  const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row" data-anchor="foot">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
   const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions"><button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span>${dealLabel}</span><span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -432,7 +450,7 @@ function tableHtml() {
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
     <ul class="log">${log}</ul>
     ${foot}
-    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}">${hand
+    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${hand
       .map((card) => cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` }))
       .join("")}</div></div>
     <div class="actions">${actions}</div>
@@ -446,9 +464,253 @@ function modalHtml() {
   return ""
 }
 
+function speedControl() {
+  return `<label class="speed"><span>Speed</span><input type="range" min="1" max="5" step="1" value="${ui.speed}" data-act="speed" aria-label="Card speed" aria-valuemin="1" aria-valuemax="5" aria-valuenow="${ui.speed}"><span data-speed-label>${SPEED_NAMES[ui.speed - 1]}</span></label>`
+}
+
+function motionMs() {
+  if (reduceMotion) return 0
+  return SPEED_MS[ui.speed - 1] ?? SPEED_MS[2]
+}
+
+function cardPlaces(state) {
+  const places = new Map()
+  const put = (card, place) => {
+    if (card) places.set(card.id, place)
+  }
+  for (const card of state.stock) put(card, { kind: "stock" })
+  state.discard.forEach((card, index) => put(card, { kind: "discard", top: index === state.discard.length - 1 }))
+  state.players.forEach((player, seat) => {
+    for (const card of player.hand) put(card, { kind: "hand", seat })
+    for (const card of player.foot || []) put(card, { kind: "foot", seat })
+  })
+  state.teams.forEach((team, teamId) => {
+    for (const card of team.redThrees) put(card, { kind: "reds", team: teamId })
+    for (const meld of team.melds) {
+      for (const card of meld.cards) put(card, { kind: "meld", team: teamId, rank: meld.rank })
+    }
+  })
+  return places
+}
+
+function cardById(id) {
+  const piles = [
+    ...match.stock,
+    ...match.discard,
+    ...match.players.flatMap((player) => [...player.hand, ...(player.foot || [])]),
+    ...match.teams.flatMap((team) => [...team.redThrees, ...team.melds.flatMap((meld) => meld.cards)]),
+  ]
+  return piles.find((card) => card.id === id) || null
+}
+
+function anchorKey(place) {
+  if (!place) return "stock"
+  if (place.kind === "stock") return "stock"
+  if (place.kind === "discard") return "discard"
+  if (place.kind === "foot" && place.seat === 0) return "foot"
+  if (place.kind === "hand" && place.seat === 0) return "hand"
+  if (place.kind === "hand" || place.kind === "foot") return `seat-${place.seat}`
+  if (place.kind === "meld") return `meld-${place.rank}`
+  if (place.kind === "reds") return `zone-${place.team}`
+  return "stock"
+}
+
+function anchorElement(key) {
+  if (key.startsWith("meld-")) return document.querySelector(`[data-anchor="meld"][data-rank="${key.slice(5)}"]`)
+  return document.querySelector(`[data-anchor="${key}"]`)
+}
+
+function anchorBox(el) {
+  if (!el) return null
+  const tight = el.querySelector(".stack > .card, .backs .card, .reds")
+  const tightRect = tight?.getBoundingClientRect()
+  const rect = tightRect && tightRect.width >= 2 ? tightRect : el.getBoundingClientRect()
+  return boxOf(rect)
+}
+
+function captureLayout() {
+  const cards = new Map()
+  const anchors = new Map()
+  document.querySelectorAll("[data-cid]").forEach((el) => {
+    if (el.closest(".flyer")) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width > 0) cards.set(Number(el.dataset.cid), rect)
+  })
+  document.querySelectorAll("[data-anchor]").forEach((el) => {
+    const key = el.dataset.anchor === "meld" ? `meld-${el.dataset.rank}` : el.dataset.anchor
+    const box = anchorBox(el)
+    if (box) anchors.set(key, box)
+  })
+  return { cards, anchors }
+}
+
+function boxOf(rect) {
+  if (!rect || rect.width < 2) return null
+  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+}
+
+function lookupRect(key, layout) {
+  if (layout?.anchors?.has(key)) return layout.anchors.get(key)
+  return anchorBox(anchorElement(key))
+}
+
+function dealMoves() {
+  const moves = []
+  const player = match.players[0]
+  for (const card of sortHand(player.hand)) {
+    moves.push({ id: card.id, card, from: { kind: "stock" }, to: { kind: "hand", seat: 0 } })
+  }
+  const top = match.discard.at(-1)
+  if (top) moves.push({ id: top.id, card: top, from: { kind: "stock" }, to: { kind: "discard", top: true } })
+  if (player.foot?.length) moves.push({ packet: true, from: { kind: "stock" }, to: { kind: "foot", seat: 0 } })
+  for (let seat = 1; seat < match.playerCount; seat++) {
+    moves.push({ packet: true, from: { kind: "stock" }, to: { kind: "hand", seat } })
+    if (match.players[seat].foot?.length) moves.push({ packet: true, from: { kind: "stock" }, to: { kind: "foot", seat } })
+  }
+  match.teams.forEach((team, teamId) => {
+    for (const card of team.redThrees) moves.push({ id: card.id, card, from: { kind: "stock" }, to: { kind: "reds", team: teamId } })
+  })
+  return moves
+}
+
+function movesBetween(before, after, action) {
+  if (action.type === "deal" || action.type === "next") return dealMoves()
+  const moves = []
+  for (const [id, to] of after) {
+    const from = before.get(id)
+    if (!from) continue
+    if (from.kind === to.kind && from.seat === to.seat && from.team === to.team && String(from.rank ?? "") === String(to.rank ?? "")) continue
+    if (from.kind === "discard" && to.kind === "discard") continue
+    if (from.kind === "stock" && to.kind === "stock") continue
+    moves.push({ id, card: cardById(id), from, to })
+  }
+  const rank = (move) => {
+    if (move.to.kind === "meld") return 0
+    if (move.to.kind === "hand" && move.to.seat === 0) return 1
+    if (move.to.kind === "discard") return 2
+    return 3
+  }
+  moves.sort((a, b) => rank(a) - rank(b))
+  return moves.length > 18 ? moves.slice(0, 18) : moves
+}
+
+function faceUp(place) {
+  if (!place) return false
+  if (place.kind === "stock" || place.kind === "foot") return false
+  if ((place.kind === "hand" || place.kind === "foot") && place.seat !== 0) return false
+  return true
+}
+
+function specificCard(move) {
+  if (move.packet || move.id == null) return false
+  if (move.to.kind === "meld" || move.to.kind === "discard") return true
+  return move.to.kind === "hand" && move.to.seat === 0
+}
+
+let flightGen = 0
+
+function animateMoves(moves, layout) {
+  const duration = motionMs()
+  if (!moves.length || duration === 0) return Promise.resolve()
+  const token = ++flightGen
+  document.querySelectorAll(".flyer").forEach((node) => node.remove())
+  const groups = new Map()
+  const prepared = []
+  for (const move of moves) {
+    const key = anchorKey(move.from)
+    const source = !move.packet && move.from?.kind !== "stock" && layout.cards.has(move.id) ? boxOf(layout.cards.get(move.id)) : lookupRect(key, layout)
+    let dest = null
+    if (specificCard(move)) dest = boxOf(document.querySelector(`.shell [data-cid="${move.id}"]`)?.getBoundingClientRect())
+    if (!dest) dest = lookupRect(anchorKey(move.to), null)
+    if (!source || !dest) continue
+    const bunch = groups.get(key) || []
+    groups.set(key, bunch)
+    prepared.push({ move, source, dest, bunch: bunch.length })
+    bunch.push(move)
+  }
+  let maxDelay = 0
+  const wide = prepared.length <= 6
+  prepared.forEach((item, index) => {
+    const delay = Math.round(index * (wide ? duration * 0.42 : Math.min(32, duration * 0.06)))
+    maxDelay = delay
+    const from = {
+      left: item.source.left + (item.bunch - (groups.get(anchorKey(item.move.from)).length - 1) / 2) * 16,
+      top: item.source.top + item.bunch * 5,
+      width: item.source.width,
+      height: item.source.height,
+    }
+    const endFace = faceUp(item.move.to)
+    const startFace = faceUp(item.move.from)
+    if (specificCard(item.move)) document.querySelector(`.shell [data-cid="${item.move.id}"]`)?.classList.add("flying-target")
+    const flyer = document.createElement("div")
+    flyer.className = "flyer"
+    const turn = document.createElement("div")
+    turn.className = "turn"
+    const front = document.createElement("div")
+    front.className = "side"
+    const rear = document.createElement("div")
+    rear.className = "side rear"
+    const face = item.move.card ? cardMarkup(item.move.card, { extra: "fill" }) : `<span class="card back fill"></span>`
+    const back = `<span class="card back fill"></span>`
+    front.innerHTML = endFace ? face : back
+    rear.innerHTML = startFace ? face : back
+    turn.append(front, rear)
+    flyer.append(turn)
+    const dx = from.left - item.dest.left
+    const dy = from.top - item.dest.top
+    const sx = Math.max(0.2, from.width / item.dest.width)
+    const sy = Math.max(0.2, from.height / item.dest.height)
+    flyer.style.left = `${item.dest.left}px`
+    flyer.style.top = `${item.dest.top}px`
+    flyer.style.width = `${item.dest.width}px`
+    flyer.style.height = `${item.dest.height}px`
+    flyer.style.zIndex = String(20 + index)
+    flyer.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy}) rotate(${item.bunch % 2 ? -7 : 6}deg)`
+    const flip = startFace !== endFace
+    if (flip) turn.style.transform = "rotateY(180deg)"
+    document.body.appendChild(flyer)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      flyer.style.transition = `transform ${duration}ms cubic-bezier(.22,.7,.2,1) ${delay}ms`
+      flyer.style.transform = "translate(0px, 0px) scale(1) rotate(0deg)"
+      if (flip) {
+        turn.style.transition = `transform ${Math.round(duration * 0.62)}ms ease-in-out ${delay + Math.round(duration * 0.14)}ms`
+        turn.style.transform = "rotateY(0deg)"
+      }
+    }))
+  })
+  if (!prepared.length) return Promise.resolve()
+  return sleep(duration + maxDelay + 40).then(() => {
+    if (token !== flightGen) return
+    document.querySelectorAll(".flyer").forEach((node) => node.remove())
+    document.querySelectorAll(".flying-target").forEach((node) => node.classList.remove("flying-target"))
+  })
+}
+
+async function commit(action) {
+  const before = cardPlaces(match)
+  const layout = captureLayout()
+  const result = apply(match, action)
+  if (!result.ok) {
+    ui.error = result.error
+    render()
+    return false
+  }
+  ui.error = ""
+  resetSelection()
+  const moves = movesBetween(before, cardPlaces(match), action)
+  render()
+  await animateMoves(moves, layout)
+  if (ui.summarize) {
+    ui.summarize = false
+    ui.modal = "summary"
+    render()
+  }
+  return true
+}
+
 function notePhase() {
   if (!match || match.phase === lastPhase) return
-  if (match.phase === "handEnd" || match.phase === "matchEnd") ui.modal = "summary"
+  if (match.phase === "handEnd" || match.phase === "matchEnd") ui.summarize = true
   lastPhase = match.phase
 }
 
@@ -469,17 +731,17 @@ function resetSelection() {
   ui.focusRank = null
 }
 
-function doAction(action) {
-  const result = apply(match, action)
-  if (!result.ok) {
-    ui.error = result.error
+async function doAction(action) {
+  if (ui.busy) return
+  ui.busy = true
+  let ok = false
+  try {
+    ok = await commit(action)
+  } finally {
+    ui.busy = false
     render()
-    return
   }
-  ui.error = ""
-  resetSelection()
-  render()
-  runAi()
+  if (ok) runAi()
 }
 
 function stageSelection() {
@@ -578,15 +840,22 @@ function goOut() {
   render()
 }
 
-function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>> 0 || 1) {
+async function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>> 0 || 1) {
+  if (ui.busy) return
+  ui.busy = true
   match = createMatch({ opponents: ui.opponents, seed, rules: ui.rules })
-  apply(match, { type: "deal" })
   ui.screen = "table"
   ui.modal = null
   ui.error = ""
+  ui.summarize = false
   lastPhase = null
   resetSelection()
-  render()
+  try {
+    await commit({ type: "deal" })
+  } finally {
+    ui.busy = false
+    render()
+  }
   runAi()
 }
 
@@ -604,13 +873,8 @@ async function runAi() {
         break
       }
       for (const action of plan.actions) {
-        await sleep(reduceMotion ? 30 : 320)
-        const result = apply(match, action)
-        if (!result.ok) {
-          ui.error = result.error
-          return
-        }
-        render()
+        await sleep(reduceMotion ? 16 : 60)
+        if (!(await commit(action))) return
       }
     }
   } finally {
@@ -633,6 +897,7 @@ function onClick(event) {
     return
   }
   const act = node.dataset.act
+  if (act === "speed") return
   if (act === "rules") return ((ui.modal = "rules"), render())
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
@@ -698,5 +963,23 @@ function onClick(event) {
   }
 }
 
+function onSpeed(event) {
+  const node = event.target.closest("[data-act=speed]")
+  if (!node) return
+  const value = Number(node.value)
+  if (value < 1 || value > 5) return
+  ui.speed = value
+  try {
+    localStorage.setItem("canasta-motion", String(value))
+  } catch {
+    /* the slider still works when storage is blocked */
+  }
+  node.setAttribute("aria-valuenow", String(value))
+  document.querySelectorAll("[data-speed-label]").forEach((label) => {
+    label.textContent = SPEED_NAMES[value - 1]
+  })
+}
+
 app.addEventListener("click", onClick)
+app.addEventListener("input", onSpeed)
 render()
