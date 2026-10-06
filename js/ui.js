@@ -195,7 +195,98 @@ function stagedPreview() {
     .join("")
   const need = openingRequirement(myTeam().total)
   const note = myTeam().opened ? "" : ` <span>${points} / ${need}</span>`
-  return `<div class="stage"><div class="meld-head"><span>${ui.taking ? "Taking the discard" : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then add a meld.</p>"}</div></div>`
+  const ready = points >= need
+  const open =
+    ui.staged.length && !ui.taking
+      ? pop(
+          popButton("open", "Open", {
+            primary: ready,
+            disabled: !ready,
+            title: ready ? "" : `${points} of ${need} points`,
+          }),
+          "pop-inline"
+        )
+      : ""
+  return `<div class="stage"><div class="meld-head"><span>${ui.taking ? "Taking the discard" : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then meld.</p>"}</div>${open}</div>`
+}
+
+function myTurn() {
+  return match.turn === 0 && (match.phase === "draw" || match.phase === "meld")
+}
+
+function canUndo() {
+  return match.turn === 0 && match.phase === "meld" && !!match.turnState?.snapshot
+}
+
+function canLeaveNow() {
+  const team = myTeam()
+  if (match.rules === "house") return meetsGoOut(match, team.melds) && !me().foot.length
+  return countCanastas(team.melds) >= canastasNeeded(match)
+}
+
+function popButton(act, label, { primary = false, disabled = false, title = "" } = {}) {
+  const tip = title ? ` title="${esc(title)}"` : ""
+  return `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${act}"${disabled ? " disabled" : ""}${tip}>${esc(label)}</button>`
+}
+
+function pop(html, extra = "") {
+  if (!html) return ""
+  return `<div class="pop${extra ? ` ${extra}` : ""}">${html}</div>`
+}
+
+function stageCheck(cards) {
+  const top = ui.taking ? match.discard.at(-1) : null
+  const matches = !!(top && cards.some((card) => isNatural(card) && card.rank === top.rank))
+  const parsed = describeMeld(matches ? [...cards, top] : cards, false, match.rules === "house")
+  if (!parsed.ok) return parsed
+  if (ui.taking && discardInfo(match, 0).frozen && matches && cards.filter((card) => card.rank === top.rank).length < 2) {
+    return { ok: false, error: "A frozen pile needs two natural cards from your hand." }
+  }
+  const duplicate = ui.staged.some((ids) => ids.some((id) => myHand().find((card) => card.id === id)?.rank === parsed.rank))
+  if (duplicate) return { ok: false, error: "That rank is already in the opening meld." }
+  return { ok: true, error: "" }
+}
+
+function meldCheck(cards) {
+  if (!myTeam().opened) return stageCheck(cards)
+  if (layoffRank(cards) != null) return { ok: true, error: "" }
+  if (canLeaveNow() && cards.length === myHand().length && cards.every(isBlackThree)) {
+    const blacks = describeMeld(cards, true)
+    if (blacks.ok && blacks.black) return { ok: true, error: "", go: true }
+  }
+  const parsed = describeMeld(cards, false, match.rules === "house")
+  return parsed.ok ? { ok: true, error: "" } : { ok: false, error: parsed.error || "" }
+}
+
+function handChoice(cards) {
+  if (!myTurn()) return null
+  if (ui.taking) {
+    if (cards.length < 2) return null
+    const check = stageCheck(cards)
+    return { act: "stage", label: "Meld", primary: check.ok, disabled: !check.ok, title: check.error }
+  }
+  if (match.phase !== "meld") return null
+  if (cards.length === 1) {
+    const blocked = ui.staged.length > 0
+    return {
+      act: "discard-btn",
+      label: "Discard",
+      primary: !blocked,
+      disabled: blocked,
+      title: blocked ? "Open the staged melds before discarding." : "",
+    }
+  }
+  if (cards.length > 1) {
+    const check = meldCheck(cards)
+    return {
+      act: check.go ? "go" : myTeam().opened ? "meld-btn" : "stage",
+      label: check.go ? "Go out" : "Meld",
+      primary: check.ok,
+      disabled: !check.ok,
+      title: check.error,
+    }
+  }
+  return null
 }
 
 function piles() {
@@ -205,11 +296,26 @@ function piles() {
   const peek = freezer && freezer !== top ? cardMarkup(freezer, { small: true, extra: "peek" }) : ""
   const face = top ? cardMarkup(top, { extra: "show" }) : `<span class="card empty">Empty</span>`
   const info = discardInfo(match, 0)
-  const stockOff = match.turn !== 0 || match.phase !== "draw" || ui.taking || match.mayDecline ? "disabled" : ""
-  const pileOff = match.turn !== 0 || match.phase !== "draw" || ui.taking ? "disabled" : ""
+  const drawing = myTurn() && match.phase === "draw" && !ui.taking && !match.mayDecline
+  const declining = myTurn() && match.phase === "draw" && match.mayDecline && !ui.taking
+  const stockOff = drawing ? "" : "disabled"
+  const pileOff = myTurn() && match.phase === "draw" && !ui.taking ? "" : "disabled"
+  let stockPop = ""
+  if (drawing) stockPop = pop(popButton("stock", "Draw", { primary: true }))
+  else if (declining) stockPop = pop(popButton("decline", "End hand", { primary: !info.canTake }))
+  let discardPop = ""
+  if (ui.taking && myTurn()) {
+    const ready = ui.staged.length > 0
+    discardPop = pop(
+      popButton("take", "Take pile", { primary: true, disabled: !ready, title: ready ? "" : "Add a meld that uses the discard." }) +
+        popButton("cancel-take", "Cancel")
+    )
+  } else if (myTurn() && match.phase === "draw" && info.canTake) {
+    discardPop = pop(popButton("pile", info.mode === "layoff" ? "Take discard" : "Take with cards", { primary: declining }))
+  }
   return `<div class="piles">
-    <button type="button" class="pile" data-act="stock" data-anchor="stock" ${stockOff}><span class="stack"><span class="card back"></span></span><span class="pile-meta"><b>${match.stock.length}</b>Stock</span></button>
-    <button type="button" class="pile${frozen ? " frozen" : ""}" data-act="pile" data-anchor="discard" ${pileOff} title="${esc(info.reason)}"><span class="stack">${peek}${face}</span><span class="pile-meta"><b>${match.discard.length}</b>${frozen ? "Frozen" : "Discard"}</span></button>
+    <div class="pile-slot stock"><button type="button" class="pile${drawing ? " ready" : ""}" data-act="stock" data-anchor="stock" ${stockOff}><span class="stack"><span class="card back"></span></span><span class="pile-meta"><b>${match.stock.length}</b>Stock</span></button>${stockPop}</div>
+    <div class="pile-slot discard"><button type="button" class="pile${frozen ? " frozen" : ""}" data-act="pile" data-anchor="discard" ${pileOff} title="${esc(info.reason)}"><span class="stack">${peek}${face}</span><span class="pile-meta"><b>${match.discard.length}</b>${frozen ? "Frozen" : "Discard"}</span></button>${discardPop}</div>
   </div>`
 }
 
@@ -226,6 +332,13 @@ function hint() {
   if (match.phase === "matchEnd") return "That is the match."
   const player = match.players[match.turn]
   if (!player.isHuman) return `${player.name} is playing…`
+  if (myTurn() && (ui.taking || match.phase === "meld")) {
+    const cards = selectedCards()
+    if (cards.length > 1) {
+      const check = ui.taking || !myTeam().opened ? stageCheck(cards) : meldCheck(cards)
+      if (!check.ok && check.error) return check.error
+    }
+  }
   if (ui.taking) return "Choose a natural pair that matches the discard. Add more melds if you still need points."
   if (match.phase === "draw") {
     if (match.mayDecline) return "The stock is empty. Take the discard, or end the hand."
@@ -246,44 +359,6 @@ function hint() {
   const need = canastasNeeded(match)
   if (have < need) return need === 2 ? "You need two canastas before you can go out." : "You need a canasta of 7 before you can go out."
   return "You may go out by melding the rest of your hand."
-}
-
-function buttons() {
-  const list = []
-  if (match.phase === "handEnd") list.push(["next", "Next hand", true])
-  if (match.phase === "matchEnd") list.push(["again", "Play again", true])
-  const mine = match.turn === 0 && (match.phase === "draw" || match.phase === "meld")
-  if (!mine) return list
-  if (match.phase === "draw") {
-    if (ui.taking) {
-      list.push(["stage", "Add meld", false], ["take", "Take pile", true], ["cancel-take", "Cancel", false])
-      return list
-    }
-    const info = discardInfo(match, 0)
-    if (match.mayDecline) {
-      if (info.canTake) list.push(["pile", "Take discard", true])
-      list.push(["decline", "End hand", false])
-      return list
-    }
-    list.push(["stock", "Draw", true])
-    if (info.canTake) list.push(["pile", info.mode === "layoff" ? "Take discard" : "Take with cards", false])
-    return list
-  }
-  const team = myTeam()
-  if (!team.opened) {
-    list.push(["stage", "Add meld", false], ["open", "Open", true])
-    if (ui.staged.length) list.push(["clear", "Clear", false])
-    else list.push(["discard-btn", "Discard", false])
-    list.push(["undo", "Undo", false])
-    return list
-  }
-  const cards = selectedCards()
-  if (cards.length) list.push(["meld-btn", layoffRank(cards) == null ? "Meld" : "Add to meld", true])
-  list.push(["discard-btn", myHand().length === 1 ? "Discard & go out" : "Discard", false])
-  const canLeave = match.rules === "house" ? meetsGoOut(match, team.melds) && !me().foot.length : countCanastas(team.melds) >= canastasNeeded(match)
-  if (canLeave) list.push(["go", "Go out", true])
-  list.push(["undo", "Undo", false])
-  return list
 }
 
 function layoffRank(cards) {
@@ -397,8 +472,8 @@ function lobbyHtml() {
     .map((count) => `<button type="button" class="choice${ui.opponents === count ? " on" : ""}" data-opponents="${count}"><b>${count}</b><span>${count === 1 ? "opponent" : "opponents"}</span></button>`)
     .join("")
   const modes = [
-    ["classic", "Classic", "Four hands"],
     ["house", "House rules", "Everyone solo"],
+    ["classic", "Classic", "Four hands"],
   ]
     .map(
       ([id, title, note]) =>
@@ -432,16 +507,34 @@ function tableHtml() {
   const opponents = match.players.map((_, index) => index).filter((index) => index !== 0)
   const stagedIds = new Set(ui.staged.flat())
   const hand = sortHand(myHand().filter((card) => !stagedIds.has(card.id)))
-  const yourTurn = match.turn === 0 && (match.phase === "draw" || match.phase === "meld")
+  const yourTurn = myTurn()
   const log = match.log.slice(-3).map((line) => `<li>${esc(line)}</li>`).join("")
-  const actions = buttons()
-    .map(([id, label, primary]) => `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${id}">${esc(label)}</button>`)
+  const chosen = hand.filter((card) => ui.selected.has(card.id))
+  const choice = handChoice(chosen)
+  const anchorId = chosen[0]?.id
+  const cards = hand
+    .map((card) => {
+      const face = cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` })
+      const bubble = card.id === anchorId && choice ? pop(popButton(choice.act, choice.label, choice)) : ""
+      return `<div class="card-slot">${bubble}${face}</div>`
+    })
     .join("")
+  const go =
+    yourTurn && match.phase === "meld" && !hand.length && !ui.staged.length && canLeaveNow()
+      ? pop(popButton("go", "Go out", { primary: true }), "pop-inline")
+      : ""
+  const finished =
+    match.phase === "handEnd"
+      ? pop(popButton("next", "Next hand", { primary: true }), "pop-inline")
+      : match.phase === "matchEnd"
+        ? pop(popButton("again", "Play again", { primary: true }), "pop-inline")
+        : ""
   const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row" data-anchor="foot">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
   const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
+  const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
-    <div class="scoreline"><span>${dealLabel}</span><span>${scoreText()}</span></div>
+    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <div class="scoreline"><span>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
     ${piles()}
@@ -450,10 +543,8 @@ function tableHtml() {
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
     <ul class="log">${log}</ul>
     ${foot}
-    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${hand
-      .map((card) => cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` }))
-      .join("")}</div></div>
-    <div class="actions">${actions}</div>
+    ${go}
+    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
   </main>`
 }
 
@@ -833,6 +924,7 @@ function goOut() {
   const cards = selectedCards()
   if (!hand.length) return doAction({ type: "goOut", cardId: null })
   if (cards.length === 1) return doAction({ type: "goOut", cardId: cards[0].id })
+  if (cards.length === hand.length && hand.every(isBlackThree)) return doAction({ type: "goOut", cardId: null })
   if (!cards.length && (hand.every(isBlackThree) || hand.length === 1)) {
     return doAction(hand.length === 1 ? { type: "discard", cardId: hand[0].id } : { type: "goOut", cardId: null })
   }

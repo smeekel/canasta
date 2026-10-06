@@ -122,6 +122,19 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 .brand { font-size: 1.35rem; }
 .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
 .top-actions button { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
+button.undo {
+  background: rgba(240, 215, 140, 0.16);
+  color: var(--gold);
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1.5px var(--gold);
+}
+button.undo:disabled {
+  opacity: 0.38;
+  color: var(--cream);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px rgba(240, 215, 140, 0.35);
+}
 
 .speed {
   display: inline-flex;
@@ -211,7 +224,40 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 }
 .empty-note { opacity: 0.7; font-size: 0.9rem; margin: 0; }
 
-.piles { justify-content: center; gap: 28px; margin: 12px 0; }
+.piles { justify-content: center; gap: 28px; margin: 18px 0 12px; }
+.pile-slot { position: relative; }
+.pile-slot.stock .pop {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 18px;
+}
+.pile-slot.discard .pop {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 18px;
+  flex-direction: column;
+}
+.pile.ready .stack {
+  border-radius: 10px;
+  box-shadow: 0 0 0 3px var(--gold), 0 0 0 8px rgba(240, 215, 140, 0.38);
+  animation: deck-glow 1.5s ease-in-out infinite;
+}
+@keyframes deck-glow {
+  50% { box-shadow: 0 0 0 3px var(--gold), 0 0 0 13px rgba(240, 215, 140, 0.1); }
+}
+.pop {
+  display: flex;
+  gap: 6px;
+  z-index: 4;
+}
+.pop button {
+  min-height: 36px;
+  padding: 6px 14px;
+  white-space: nowrap;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.32);
+}
+.pop-inline { position: static; }
+.stage .pop-inline { justify-content: flex-end; margin-top: 8px; }
 .pile {
   background: transparent;
   min-height: 0;
@@ -266,22 +312,31 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
   display: flex;
   justify-content: safe center;
   overflow-x: auto;
-  padding: 22px 8px 10px;
+  padding: 72px 12px 24px;
   margin: 0 -8px;
 }
 .hand { display: flex; width: max-content; flex: 0 0 auto; }
 .card.empty { font-size: 0.8rem; color: #6d6456; }
-.hand .card { margin-left: -26px; }
-.hand.tight .card { margin-left: -32px; }
-.hand .card:first-child { margin-left: 0; }
+.hand .card-slot { position: relative; margin-left: -26px; flex: 0 0 auto; }
+.hand.tight .card-slot { margin-left: -32px; }
+.hand .card-slot:first-child { margin-left: 0; }
+.hand .card { margin-left: 0; }
+.card-slot:has(.card.sel) { z-index: 3; }
+.card-slot .pop {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 22px);
+  transform: translateX(-50%);
+}
+.hand .card-slot:first-child .pop { left: 0; transform: none; }
+.hand .card-slot:last-child .pop { left: auto; right: 0; transform: none; }
+.hand-scroll + .pop-inline,
+.shell > .pop-inline { justify-content: center; margin: 0 0 4px; }
 .your-turn .hand-scroll { box-shadow: inset 0 0 0 1px rgba(240, 215, 140, 0.35); border-radius: 16px; }
 
 .actions {
-  position: sticky;
-  bottom: 0;
   flex-wrap: wrap;
-  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(8, 50, 24, 0.92) 30%);
+  gap: 8px;
 }
 .actions button { flex: 1 1 120px; }
 
@@ -400,6 +455,16 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 .sheet .total { font-size: 1.15rem; }
 .sheet .actions { position: static; background: none; padding-top: 12px; }
 
+@media (max-width: 640px) {
+  .pile-slot.stock .pop,
+  .pile-slot.discard .pop {
+    position: static;
+    margin-top: 8px;
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
 @media (min-width: 900px) {
   :root { --card-w: 74px; --card-h: 106px; }
   .card.sm { --card-w: 42px; --card-h: 60px; }
@@ -411,4 +476,5 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 @media (prefers-reduced-motion: reduce) {
   .card.sel { transform: none; }
   .flyer { transition: none !important; }
+  .pile.ready .stack { animation: none; }
 }
