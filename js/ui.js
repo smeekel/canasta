@@ -63,6 +63,7 @@ const ui = {
   modal: null,
   summarize: false,
   values: false,
+  log: false,
   handScroll: 0,
 }
 
@@ -291,27 +292,36 @@ function handChoice(cards) {
   if (ui.taking) {
     if (cards.length < 2) return null
     const check = stageCheck(cards)
-    return { act: "stage", label: "Meld", primary: check.ok, disabled: !check.ok, title: check.error }
+    return { buttons: [{ act: "stage", label: "Meld", primary: check.ok, disabled: !check.ok, title: check.error }] }
   }
   if (match.phase !== "meld") return null
   if (cards.length === 1) {
     const blocked = ui.staged.length > 0
-    return {
+    const add = !blocked && myTeam().opened && layoffRank(cards) != null
+    const buttons = []
+    if (add) buttons.push({ act: "meld-btn", label: "Add", primary: true })
+    buttons.push({
       act: "discard-btn",
       label: "Discard",
-      primary: !blocked,
+      primary: !add && !blocked,
       disabled: blocked,
       title: blocked ? "Open the staged melds before discarding." : "",
-    }
+    })
+    return { buttons }
   }
   if (cards.length > 1) {
     const check = meldCheck(cards)
+    const adding = check.ok && !check.go && myTeam().opened && layoffRank(cards) != null
     return {
-      act: check.go ? "go" : myTeam().opened ? "meld-btn" : "stage",
-      label: check.go ? "Go out" : "Meld",
-      primary: check.ok,
-      disabled: !check.ok,
-      title: check.error,
+      buttons: [
+        {
+          act: check.go ? "go" : myTeam().opened ? "meld-btn" : "stage",
+          label: check.go ? "Go out" : adding ? "Add" : "Meld",
+          primary: check.ok,
+          disabled: !check.ok,
+          title: check.error,
+        },
+      ],
     }
   }
   return null
@@ -536,7 +546,6 @@ function tableHtml() {
   const stagedIds = new Set(ui.staged.flat())
   const hand = sortHand(myHand().filter((card) => !stagedIds.has(card.id)))
   const yourTurn = myTurn()
-  const log = match.log.slice(-3).map((line) => `<li>${esc(line)}</li>`).join("")
   const chosen = hand.filter((card) => ui.selected.has(card.id))
   const choice = handChoice(chosen)
   const anchorId = chosen[0]?.id
@@ -545,7 +554,8 @@ function tableHtml() {
     .map((card, index) => {
       const face = cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` })
       const chip = card.id === anchorId && total ? `<span class="points-chip">${esc(total)}</span>` : ""
-      const bubble = card.id === anchorId && choice ? pop(`${chip}${popButton(choice.act, choice.label, choice)}`) : ""
+      const buttons = choice ? choice.buttons.map((button) => popButton(button.act, button.label, button)).join("") : ""
+      const bubble = card.id === anchorId && choice ? pop(`${chip}${buttons}`) : ""
       const beforeSel = ui.selected.has(hand[index + 1]?.id) ? " before-sel" : ""
       return `<div class="card-slot${beforeSel}">${bubble}${face}</div>`
     })
@@ -564,7 +574,7 @@ function tableHtml() {
   const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -572,12 +582,23 @@ function tableHtml() {
     ${myZone()}
     ${stagedPreview()}
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
-    <ul class="log">${log}</ul>
     ${foot}
     ${go}
     <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
     ${valuesFlyout()}
+    ${logFlyout()}
   </main>`
+}
+
+function logFlyout() {
+  if (!ui.log) return ""
+  const lines = match.log.length
+    ? match.log.map((line) => `<li>${esc(line)}</li>`).join("")
+    : `<li>No plays yet.</li>`
+  return `<aside class="flyout log-flyout" role="dialog" aria-label="Play log">
+    <div class="meld-head"><span>Play log</span><button type="button" class="x" data-act="log" aria-label="Close play log">×</button></div>
+    <ul>${lines}</ul>
+  </aside>`
 }
 
 function valuesFlyout() {
@@ -588,7 +609,7 @@ function valuesFlyout() {
     ["King through 8", cardPoints({ rank: 13, suit: "s" })],
     ["7 through 4, black 3", cardPoints({ rank: 7, suit: "s" })],
   ]
-  return `<aside class="values-flyout" role="dialog" aria-label="Card values">
+  return `<aside class="flyout" role="dialog" aria-label="Card values">
     <div class="meld-head"><span>Card values</span><button type="button" class="x" data-act="values" aria-label="Close card values">×</button></div>
     <ul>${rows.map(([name, value]) => `<li><span>${esc(name)}</span><b>${value}</b></li>`).join("")}</ul>
     <p>Red threes are bonuses, not meld points: 100 each, or 200 each when you collect every red three in the pack.</p>
@@ -1039,10 +1060,17 @@ function onClick(event) {
   if (act === "speed") return
   if (act === "values") {
     ui.values = !ui.values
+    if (ui.values) ui.log = false
     render()
     return
   }
-  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), render())
+  if (act === "log") {
+    ui.log = !ui.log
+    if (ui.log) ui.values = false
+    render()
+    return
+  }
+  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), render())
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
   if (act === "start" || act === "again") return startMatch()
