@@ -511,6 +511,70 @@ test("going out takes one pure, one mixed, and one wild canasta, and more are al
   assert.ok(line.delta >= 500 * 2 + 300 + 1500)
 })
 
+test("a completed canasta refuses an eighth card", () => {
+  const n = (rank, suit, deck) => ({ id: rank * 100 + suit.charCodeAt(0) + deck, rank, suit, deck })
+  const suits = ["s", "h", "d", "c"]
+  const eightQueens = Array.from({ length: 8 }, (_, index) => n(12, suits[index % 4], index))
+  assert.equal(describeMeld(eightQueens).ok, false)
+  assert.match(describeMeld(eightQueens).error, /7 cards/)
+  assert.equal(describeMeld(eightQueens.slice(0, 7)).ok, true)
+  const eightWilds = Array.from({ length: 8 }, (_, index) => n(index < 6 ? 2 : 0, suits[index % 4], index))
+  assert.equal(describeMeld(eightWilds, false, true).ok, false)
+  assert.equal(describeMeld(eightWilds.slice(0, 7), false, true).wild, true)
+
+  const state = houseDeal(1, 8)
+  const queens = extract(state, (card) => card.rank === 12, 8)
+  const kings = extract(state, (card) => card.rank === 13, 8)
+  const eights = extract(state, (card) => card.rank === 8, 8)
+  const joker = extract(state, (card) => card.rank === 0, 1)[0]
+  scoop(state)
+  const player = state.players[0]
+  player.hand = [queens[7], kings[6], kings[7], joker, ...eights]
+  player.foot = []
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: 12, cards: queens.slice(0, 7) },
+    { rank: 13, cards: kings.slice(0, 6) },
+  ]
+  asMeld(state)
+
+  const extra = apply(state, { type: "layoff", cardIds: [queens[7].id], rank: 12 })
+  assert.equal(extra.ok, false)
+  assert.match(extra.error, /complete/)
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 7)
+  assert.equal(player.hand.some((card) => card.id === queens[7].id), true)
+
+  const overflow = apply(state, { type: "layoff", cardIds: [kings[6].id, kings[7].id], rank: 13 })
+  assert.equal(overflow.ok, false)
+  assert.match(overflow.error, /7 cards/)
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 13).cards.length, 6)
+
+  act(state, { type: "layoff", cardIds: [kings[6].id], rank: 13 })
+  const kingMeld = state.teams[0].melds.find((meld) => meld.rank === 13)
+  assert.equal(kingMeld.cards.length, 7)
+  assert.equal(state.turnState.madeCanasta, true)
+
+  const onCanasta = apply(state, { type: "layoff", cardIds: [joker.id], rank: 13 })
+  assert.equal(onCanasta.ok, false)
+  assert.match(onCanasta.error, /complete/)
+  assert.equal(kingMeld.cards.length, 7)
+
+  const freshMeld = apply(state, { type: "meld", cardIds: eights.map((card) => card.id) })
+  assert.equal(freshMeld.ok, false)
+  assert.match(freshMeld.error, /7 cards/)
+  assert.equal(state.teams[0].melds.some((meld) => meld.rank === 8), false)
+
+  player.hand = player.hand.filter((card) => card.id !== queens[7].id)
+  state.phase = "draw"
+  state.discard = [queens[7]]
+  const info = discardInfo(state)
+  assert.equal(info.canTake, false)
+  assert.match(info.reason, /complete/)
+  const taken = apply(state, { type: "take", groups: [] })
+  assert.equal(taken.ok, false)
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 7)
+})
+
 test("a finished wild canasta can be followed by another", () => {
   const state = houseDeal(1, 7)
   const twos = extract(state, (card) => card.rank === 2, 12)

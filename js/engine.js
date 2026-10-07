@@ -135,6 +135,7 @@ export function sortHand(cards) {
 
 export function describeMeld(cards, allowBlack = false, allowWild = false) {
   if (!cards || cards.length < 3) return { ok: false, error: "A meld needs at least 3 cards." }
+  if (cards.length > 7) return { ok: false, error: "A canasta stops at 7 cards." }
   const wilds = cards.filter(isWild)
   const naturals = cards.filter(isNatural)
   const blacks = cards.filter(isBlackThree)
@@ -335,7 +336,15 @@ export function discardInfo(state, playerIndex = state.turn) {
   }
   const naturals = player.hand.filter((card) => card.rank === top.rank)
   const wilds = player.hand.filter(isWild)
-  const existing = team.melds.some((meld) => meld.rank === top.rank)
+  const existing = team.melds.find((meld) => meld.rank === top.rank)
+  if (existing && existing.cards.length >= 7) {
+    info.reason = "That canasta is complete."
+    return info
+  }
+  if (existing && frozen && existing.cards.length + 3 > 7) {
+    info.reason = "A canasta stops at 7 cards."
+    return info
+  }
   if (!frozen && existing) {
     info.canTake = true
     info.mode = "layoff"
@@ -687,6 +696,10 @@ function commitLayoffTake(state) {
     return fail("You have no meld of that rank.")
   }
   const before = meld.cards.length
+  if (before >= 7) {
+    state.discard.push(top)
+    return fail("That canasta is complete.")
+  }
   const parsed = describeMeld([...meld.cards, top])
   if (!parsed.ok) {
     state.discard.push(top)
@@ -738,6 +751,8 @@ function commitGroupedTake(state, groups) {
     if (built.some((meld) => meld.rank === parsed.rank)) return fail("Only one meld of each rank.")
     const existing = team.melds.find((meld) => meld.rank === parsed.rank)
     if (existing) {
+      if (existing.cards.length >= 7) return fail("That canasta is complete.")
+      if (existing.cards.length + withTop.length > 7) return fail("A canasta stops at 7 cards.")
       const merged = describeMeld([...existing.cards, ...withTop], false, isHouse(state))
       if (!merged.ok) return fail(merged.error)
     }
@@ -923,6 +938,8 @@ function layoff(state, cardIds, rank) {
     meld = team.melds.find((item) => item.rank < 0 && item.cards.length < 7)
   }
   if (!meld) return fail("You have no meld of that rank.")
+  if (meld.cards.length >= 7) return fail("That canasta is complete.")
+  if (meld.cards.length + pulled.cards.length > 7) return fail("A canasta stops at 7 cards.")
   const parsed = describeMeld([...meld.cards, ...pulled.cards], false, isHouse(state))
   if (!parsed.ok) return fail(parsed.error)
   const before = meld.cards.length

@@ -415,7 +415,9 @@ function eligibleWildMelds(cards) {
   const left = myHand().length - cards.length
   if (left < 2 && !(left === 0 && me().foot?.length) && !canLeaveNow()) return []
   const house = match.rules === "house"
-  return myTeam().melds.filter((meld) => describeMeld([...meld.cards, ...cards], false, house).ok)
+  return myTeam().melds.filter(
+    (meld) => meld.cards.length + cards.length <= 7 && describeMeld([...meld.cards, ...cards], false, house).ok
+  )
 }
 
 function layoffRank(cards) {
@@ -430,7 +432,9 @@ function layoffRank(cards) {
   const rank = naturals.length ? naturals[0].rank : ui.focusRank
   if (rank == null) return null
   if (!cards.every((card) => isWild(card) || card.rank === rank)) return null
-  return myTeam().melds.some((meld) => meld.rank === rank) ? rank : null
+  const meld = myTeam().melds.find((item) => item.rank === rank)
+  if (!meld || meld.cards.length + cards.length > 7) return null
+  return rank
 }
 
 function rulesHtml() {
@@ -440,7 +444,7 @@ function rulesHtml() {
     <ul>
       <li>You are dealt 13 cards and a face-down foot of 13. Draw two cards, meld if you want, then discard one.</li>
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
-      <li>A pure canasta is seven or more cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven or more wild cards (1,500). You may make as many as you like.</li>
+      <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). You may make as many as you like.</li>
       <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. The game also ends when the stock is used up.</li>
       <li>Opening counts, frozen piles, red threes, and black threes follow classic Canasta. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
@@ -448,7 +452,7 @@ function rulesHtml() {
     <ul>
       <li>With one opponent, draw two cards and make two canastas to go out. With two opponents, everyone plays alone. With three, you and Ellis are partners.</li>
       <li>On your turn, draw from the stock or take the whole discard pile, meld if you want, then discard one card.</li>
-      <li>A meld needs at least two natural cards and at most three wild cards. A canasta is seven or more: 500 if it has no wilds, 300 if it does.</li>
+      <li>A meld needs at least two natural cards and at most three wild cards. A canasta is seven cards: 500 if it has no wilds, 300 if it does.</li>
       <li>Red threes are bonuses. They are tabled automatically. Four of them score 800, and they count against a side that never melds.</li>
       <li>The pile is frozen until your side opens, and whenever a wild card or red three is in it. A frozen pile can be taken only with a natural pair. A black three on top only blocks the next take.</li>
       <li>The first meld must total 15, 50, 90, or 120 points as your score rises. Going out scores 100, or 200 if you go out concealed on the same turn you first meld.</li>
