@@ -125,9 +125,10 @@ function openingPlan(state, info = null) {
     const wildsLeft = wilds.length - wildIndex
     walk(index + 1, wildIndex, chosen)
     const options = []
-    if (cards.length >= 3) options.push([cards.length, 0])
-    if (cards.length >= 5) options.push([cards.length - 2, 0])
-    if (cards.length >= 2 && wildsLeft >= 1) options.push([cards.length >= 3 ? cards.length : 2, 1])
+    const limit = Math.min(cards.length, 7)
+    if (limit >= 3) options.push([limit, 0])
+    if (cards.length >= 5) options.push([Math.min(cards.length - 2, 7), 0])
+    if (cards.length >= 2 && wildsLeft >= 1) options.push([Math.min(cards.length >= 3 ? cards.length : 2, 6), 1])
     if (cards.length >= 4 && wildsLeft >= 1) options.push([2, 1])
     const seen = new Set()
     for (const [take, wildCount] of options) {
@@ -231,18 +232,19 @@ function houseAction(state) {
 
   for (const meld of melds) {
     if (meld.rank === 3 || meld.rank < 0 || meld.cards.some(isWild) || meld.cards.length >= 7) continue
-    const naturals = hand.filter((card) => card.rank === meld.rank)
-    if (!naturals.length || (meld.cards.length + naturals.length < 7 && naturals.length < 3)) continue
-    const after = melds.map((item) => (item === meld ? { rank: item.rank, cards: item.cards.concat(naturals) } : item))
-    if (!place(naturals.length, after)) continue
-    return { type: "layoff", cardIds: naturals.map((card) => card.id), rank: meld.rank }
+    const give = hand.filter((card) => card.rank === meld.rank).slice(0, 7 - meld.cards.length)
+    if (!give.length || (meld.cards.length + give.length < 7 && give.length < 3)) continue
+    const after = melds.map((item) => (item === meld ? { rank: item.rank, cards: item.cards.concat(give) } : item))
+    if (!place(give.length, after)) continue
+    return { type: "layoff", cardIds: give.map((card) => card.id), rank: meld.rank }
   }
 
   for (const [rank, cards] of naturalsOf(hand)) {
     if (cards.length < 7 || melds.some((meld) => meld.rank === rank)) continue
-    const after = melds.concat([{ rank, cards }])
-    if (!place(cards.length, after)) continue
-    return { type: "meld", cardIds: cards.map((card) => card.id) }
+    const give = cards.slice(0, 7)
+    const after = melds.concat([{ rank, cards: give }])
+    if (!place(give.length, after)) continue
+    return { type: "meld", cardIds: give.map((card) => card.id) }
   }
 
   if (kinds.pure >= 1 && kinds.mixed < 1 && wilds.length) {
@@ -289,7 +291,7 @@ function nextImprovement(state) {
 
   for (const meld of melds) {
     if (meld.rank === 3 || meld.rank < 0 || meld.cards.length >= 7) continue
-    const naturals = hand.filter((card) => card.rank === meld.rank)
+    const naturals = hand.filter((card) => card.rank === meld.rank).slice(0, 7 - meld.cards.length)
     const wildsOn = meld.cards.filter(isWild).length
     if (meld.cards.length >= 5 && naturals.length) {
       const action = lay(naturals, meld.rank)
@@ -310,9 +312,10 @@ function nextImprovement(state) {
 
   for (const [rank, cards] of naturalsOf(hand)) {
     if (cards.length < 3 || melds.some((meld) => meld.rank === rank)) continue
-    const completes = cards.length >= 7
-    if (!canPlace(state, cards.length, completes)) continue
-    return { type: "meld", cardIds: cards.map((card) => card.id) }
+    const give = cards.slice(0, 7)
+    const completes = give.length >= 7
+    if (!canPlace(state, give.length, completes)) continue
+    return { type: "meld", cardIds: give.map((card) => card.id) }
   }
   return null
 }
@@ -338,9 +341,10 @@ function dumpAction(state) {
   const keepWilds = state.rules === "house" && canastaBreakdown(melds).wild < 1
   for (const [rank, cards] of naturalsOf(hand)) {
     const meld = melds.find((item) => item.rank === rank)
-    if (meld && cards.length) {
-      const completes = meld.cards.length < 7 && meld.cards.length + cards.length >= 7
-      if (canPlace(state, cards.length, completes)) return { type: "layoff", cardIds: cards.map((card) => card.id), rank }
+    if (meld && cards.length && meld.cards.length < 7) {
+      const give = cards.slice(0, 7 - meld.cards.length)
+      const completes = meld.cards.length + give.length >= 7
+      if (canPlace(state, give.length, completes)) return { type: "layoff", cardIds: give.map((card) => card.id), rank }
     }
     if (!meld && cards.length >= 2 && wild && !keepWilds && canPlace(state, 3, false)) {
       return { type: "meld", cardIds: [cards[0].id, cards[1].id, wild.id] }
