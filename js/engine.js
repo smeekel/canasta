@@ -2,8 +2,9 @@
  * Canasta table. Classic mode is Bicycle / Pagat, a match of four hands:
  * 2 players draw two and need two canastas; 3 play cutthroat; 4 play as partners.
  *
- * House rules are one game, everyone alone. The pack is (players + 1) decks.
- * Each player has a hand and a foot of 13 and draws two cards. Going out takes a pure canasta,
+ * House rules are four hands, everyone alone. The pack is (players + 1) decks.
+ * Each player has a hand and a foot of 13 and draws two cards. The opening count
+ * is 50, then 90, then 120, then 150. Going out takes a pure canasta,
  * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
  * State is mutated in place. apply() returns {ok:true} or {ok:false, error}.
@@ -83,7 +84,10 @@ export function isNatural(card) {
   return card.rank === 1 || card.rank >= 4
 }
 
-export function openingRequirement(total) {
+const HOUSE_OPENING = [50, 90, 120, 150]
+
+export function openingRequirement(total, state) {
+  if (isHouse(state)) return HOUSE_OPENING[Math.min(4, Math.max(1, state.handNumber || 1)) - 1]
   if (total < 0) return 15
   if (total < 1500) return 50
   if (total < 3000) return 90
@@ -246,10 +250,6 @@ function handSizeFor(state) {
   if (state.playerCount === 2) return 15
   if (state.playerCount === 3) return 13
   return 11
-}
-
-function handsLimit(state) {
-  return isHouse(state) ? 1 : HANDS_PER_MATCH
 }
 
 function hasFoot(player) {
@@ -483,7 +483,7 @@ function endHand(state, reason) {
     lines,
   }
   state.history.push(state.handSummary)
-  state.phase = state.handNumber >= handsLimit(state) ? "matchEnd" : "handEnd"
+  state.phase = state.handNumber >= HANDS_PER_MATCH ? "matchEnd" : "handEnd"
   state.turnState = null
   state.mustTake = false
   state.mayDecline = false
@@ -585,7 +585,7 @@ export function createMatch({ opponents = 3, seed = 1, rules = "classic" } = {})
 
 function dealHand(state) {
   if (state.phase !== "new" && state.phase !== "handEnd") return fail("The next hand is not ready.")
-  if (state.handNumber >= handsLimit(state)) {
+  if (state.handNumber >= HANDS_PER_MATCH) {
     state.phase = "matchEnd"
     return ok()
   }
@@ -630,15 +630,13 @@ function dealHand(state) {
     seat = (seat + 1) % state.playerCount
   }
   state.turn = (state.dealer + 1) % state.playerCount
-  const reqs = state.teams.map((team) => openingRequirement(team.total)).join(" / ")
+  const reqs = isHouse(state)
+    ? String(openingRequirement(0, state))
+    : state.teams.map((team) => openingRequirement(team.total, state)).join(" / ")
   const dealer = state.players[state.dealer]
   const dealt = `${actor(dealer)} ${act(dealer, "deal", "deals")}. Opening count: ${reqs}.`
-  say(
-    state,
-    isHouse(state)
-      ? `House rules, ${packCount(state)} decks. ${dealt}`
-      : `Hand ${state.handNumber} of ${HANDS_PER_MATCH}. ${dealt}`
-  )
+  const houseNote = isHouse(state) ? `House rules, ${packCount(state)} decks. ` : ""
+  say(state, `Hand ${state.handNumber} of ${HANDS_PER_MATCH}. ${houseNote}${dealt}`)
   prepareTurn(state)
   return ok()
 }
@@ -761,7 +759,7 @@ function commitGroupedTake(state, groups) {
 
   if (!team.opened) {
     const points = built.reduce((sum, meld) => sum + meld.points, 0)
-    const required = openingRequirement(team.total)
+    const required = openingRequirement(team.total, state)
     if (points < required) {
       return fail(`Opening meld needs ${required} points. With the discard, that selection is ${points}.`)
     }
@@ -843,7 +841,7 @@ function open(state, groups = [], discardId = null) {
     built.push({ rank: parsed.rank, cards, points: parsed.points })
   }
   const points = built.reduce((sum, meld) => sum + meld.points, 0)
-  const required = openingRequirement(team.total)
+  const required = openingRequirement(team.total, state)
   const handAfter = leftover.length
   const projected = built.map((meld) => ({ rank: meld.rank, cards: meld.cards }))
   const ready = meetsGoOut(state, projected)

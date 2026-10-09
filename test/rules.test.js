@@ -427,15 +427,61 @@ test("house rules deal a larger pack and a foot, with no partnerships", () => {
   }
 })
 
-test("a house game ends when the stock is used up", () => {
+test("a house hand ends when the stock is used up", () => {
   const state = houseDeal(2, 1)
   state.phase = "draw"
   state.mayDecline = true
   state.stock = []
   act(state, { type: "decline" })
-  assert.equal(state.phase, "matchEnd")
+  assert.equal(state.phase, "handEnd")
   assert.equal(state.history.length, 1)
   assert.equal(state.endReason, "stock")
+})
+
+test("house rules plays four hands and the opening count rises", () => {
+  const counts = [50, 90, 120, 150]
+  for (let hand = 1; hand <= 4; hand++) {
+    const marker = { rules: "house", handNumber: hand }
+    assert.equal(openingRequirement(5000, marker), counts[hand - 1])
+    assert.equal(openingRequirement(-400, marker), counts[hand - 1])
+  }
+
+  const low = houseDeal(1, 9)
+  const aces = extract(low, (card) => card.rank === 1, 3)
+  const filler = extract(low, (card) => card.rank === 9, 2)
+  low.players[0].hand = [...aces, ...filler]
+  low.players[0].foot = []
+  low.teams[0].opened = false
+  low.teams[0].melds = []
+  asMeld(low)
+  low.handNumber = 2
+  const short = apply(low, { type: "open", groups: [aces.map((card) => card.id)] })
+  assert.equal(short.ok, false)
+  assert.match(short.error, /90/)
+  assert.equal(low.teams[0].opened, false)
+
+  const state = houseDeal(1, 2)
+  assert.match(state.status, /Hand 1 of 4/)
+  assert.match(state.status, /Opening count: 50/)
+  for (let hand = 1; hand <= 4; hand++) {
+    assert.equal(state.handNumber, hand)
+    assert.equal(openingRequirement(state.teams[0].total, state), counts[hand - 1])
+    state.phase = "draw"
+    state.mayDecline = true
+    state.stock = []
+    state.turn = 0
+    act(state, { type: "decline" })
+    if (hand < 4) {
+      assert.equal(state.phase, "handEnd")
+      act(state, { type: "next" })
+      assert.match(state.status, new RegExp(`Hand ${hand + 1} of 4`))
+      assert.match(state.status, new RegExp(`Opening count: ${counts[hand]}`))
+    }
+  }
+  assert.equal(state.phase, "matchEnd")
+  assert.equal(state.history.length, 4)
+  const again = apply(state, { type: "next" })
+  assert.equal(again.ok, false)
 })
 
 test("emptying the hand picks up the foot instead of going out", () => {
@@ -501,7 +547,7 @@ test("going out takes one pure, one mixed, and one wild canasta, and more are al
 
   player.foot = []
   act(state, { type: "discard", cardId: eight[0].id })
-  assert.equal(state.phase, "matchEnd")
+  assert.equal(state.phase, "handEnd")
   assert.equal(state.endReason, "out")
   const line = state.handSummary.lines.find((item) => item.team === 0)
   assert.equal(line.natural, 2)
@@ -598,14 +644,18 @@ test("AI finishes a house-rules game", () => {
     const state = createMatch({ opponents, seed: opponents + 3, rules: "house" })
     act(state, { type: "deal" })
     let guard = 0
-    while (state.phase !== "matchEnd" && guard++ < 3000) {
+    while (state.phase !== "matchEnd" && guard++ < 12000) {
+      if (state.phase === "handEnd") {
+        act(state, { type: "next" })
+        continue
+      }
       const plan = planTurn(state)
       assert.equal(plan.ok, true, plan.error)
       for (const action of plan.actions) act(state, action)
     }
     assert.equal(state.phase, "matchEnd")
     assert.ok(state.endReason === "stock" || state.endReason === "out")
-    assert.equal(state.history.length, 1)
+    assert.equal(state.history.length, 4)
   }
 })
 
