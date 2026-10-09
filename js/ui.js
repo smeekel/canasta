@@ -446,7 +446,8 @@ function rulesHtml() {
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
       <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). You may make as many as you like.</li>
       <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
-      <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth. Frozen piles, red threes, and black threes follow classic Canasta. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
+      <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth.</li>
+      <li>You may take the discard pile only when the top card starts a new meld. A card that matches a meld already on the table stays there. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
     : `<p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
     <ul>

@@ -4,7 +4,8 @@
  *
  * House rules are four hands, everyone alone. The pack is (players + 1) decks.
  * Each player has a hand and a foot of 13 and draws two cards. The opening count
- * is 50, then 90, then 120, then 150. Going out takes a pure canasta,
+ * is 50, then 90, then 120, then 150. The discard pile can be taken only when
+ * its top card starts a new meld. Going out takes a pure canasta,
  * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
  * State is mutated in place. apply() returns {ok:true} or {ok:false, error}.
@@ -337,6 +338,10 @@ export function discardInfo(state, playerIndex = state.turn) {
   const naturals = player.hand.filter((card) => card.rank === top.rank)
   const wilds = player.hand.filter(isWild)
   const existing = team.melds.find((meld) => meld.rank === top.rank)
+  if (isHouse(state) && existing && existing.cards.length < 7) {
+    info.reason = "That card matches a meld you already have. Take a discard only when it starts a new meld."
+    return info
+  }
   if (existing && existing.cards.length >= 7) {
     info.reason = "That canasta is complete."
     return info
