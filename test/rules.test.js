@@ -427,6 +427,45 @@ test("house rules deal a larger pack and a foot, with no partnerships", () => {
   }
 })
 
+test("house rules take a discard only to start a new meld", () => {
+  const state = houseDeal(1, 4)
+  setTurn(state, 0)
+  const kings = extract(state, (card) => card.rank === 13, 6)
+  const queens = extract(state, (card) => card.rank === 12, 3)
+  const joker = extract(state, (card) => card.rank === 0, 1)[0]
+  const rest = scoop(state).filter((card) => !isRedThree(card) && !isWild(card))
+  state.teams[0].opened = true
+  state.teams[0].melds = [{ rank: 13, cards: kings.slice(0, 3) }]
+  state.players[0].hand = [kings[3], kings[4], queens[0], queens[1], joker, ...rest.slice(0, 4)]
+  state.players[0].foot = []
+  state.discard = [kings[5]]
+  state.stock = rest.slice(4)
+
+  const blocked = discardInfo(state)
+  assert.equal(blocked.canTake, false)
+  assert.equal(blocked.mustTake, false)
+  assert.match(blocked.reason, /new meld/)
+  const taken = apply(state, { type: "take", groups: [] })
+  assert.equal(taken.ok, false)
+  const paired = apply(state, { type: "take", groups: [[kings[3].id, kings[4].id]] })
+  assert.equal(paired.ok, false)
+  assert.equal(state.teams[0].melds[0].cards.length, 3)
+  assert.equal(state.discard.at(-1).id, kings[5].id)
+
+  state.stock = []
+  assert.equal(discardInfo(state).canTake, false)
+  assert.equal(discardInfo(state).mustTake, false)
+
+  state.stock = rest.slice(4)
+  state.discard = [queens[2]]
+  const fresh = discardInfo(state)
+  assert.equal(fresh.canTake, true)
+  assert.equal(fresh.mode, "pair")
+  act(state, { type: "take", groups: [[queens[0].id, queens[1].id]] })
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 3)
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 13).cards.length, 3)
+})
+
 test("a house hand ends when the stock is used up", () => {
   const state = houseDeal(2, 1)
   state.phase = "draw"
