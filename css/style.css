@@ -52,6 +52,7 @@ button.primary { background: var(--gold); color: var(--ink); font-weight: 700; }
 button.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 button:disabled { opacity: 0.45; cursor: default; }
 body.is-busy button { pointer-events: none; }
+body.is-busy button.version { pointer-events: auto; }
 
 .shell { width: min(1080px, 100%); margin: 0 auto; padding: 12px 12px 20px; }
 
@@ -119,7 +120,21 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
 }
 
 .topbar { justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; gap: 8px; }
-.brand { font-size: 1.35rem; }
+.brand { font-size: 1.35rem; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+button.version {
+  min-height: 0;
+  margin-top: 2px;
+  padding: 2px 0;
+  background: transparent;
+  border-radius: 0;
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.01em;
+  color: rgba(246, 241, 228, 0.48);
+}
+button.version:hover,
+button.version:focus-visible { color: rgba(246, 241, 228, 0.82); }
+.lobby .version { margin: 12px auto 0; }
 .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
 .top-actions button { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
 button.undo {
@@ -533,6 +548,8 @@ button.undo:disabled {
   text-align: left;
 }
 .sheet h2 { margin: 0 0 8px; font-weight: 500; }
+.sheet a { color: var(--gold); }
+.sheet time { font-variant-numeric: tabular-nums; }
 .sheet p, .sheet li { font-size: 0.95rem; line-height: 1.45; }
 .sheet .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .sheet .total { font-size: 1.15rem; }
