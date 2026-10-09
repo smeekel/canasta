@@ -30,9 +30,9 @@ const explain = {
     3: "Classic four-handed partnerships. You play with Ellis, across the table, against Mina and Noah.",
   },
   house: {
-    1: "You and Mina, each for yourself. Three decks, a hand and a foot, and one of each canasta to go out.",
-    2: "You, Mina, and Ellis, each for yourself. Four decks, and nobody has a partner.",
-    3: "Four players, each for yourself. Five decks. Partnerships are not used.",
+    1: "You and Mina, each for yourself. Four hands, three decks, a hand and a foot, and one of each canasta to go out.",
+    2: "You, Mina, and Ellis, each for yourself. Four hands, four decks, and nobody has a partner.",
+    3: "Four players, each for yourself. Four hands and five decks. Partnerships are not used.",
   },
 }
 
@@ -203,7 +203,7 @@ function stagedPreview() {
       return `<div class="stage-group">${shown.map((card) => cardMarkup(card, { small: true, extra: card === top ? "ghost" : "" })).join("")}<button type="button" class="x" data-act="unstage" data-index="${index}">×</button></div>`
     })
     .join("")
-  const need = openingRequirement(myTeam().total)
+  const need = openingRequirement(myTeam().total, match)
   const note = myTeam().opened ? "" : ` <span>${points} / ${need}</span>`
   const ready = points >= need
   const open =
@@ -241,7 +241,7 @@ function runningLabel(cards) {
   if (selectionUsesTop) total += cardPoints(top)
   total += stagedPoints(selectionUsesTop)
   if (!myTeam().opened && (cards.length > 1 || ui.staged.length)) {
-    return `${total} / ${openingRequirement(myTeam().total)}`
+    return `${total} / ${openingRequirement(myTeam().total, match)}`
   }
   return String(total)
 }
@@ -395,7 +395,7 @@ function hint() {
     return info.canTake ? `${draw}, or take the discard pile.` : `${draw}. ${info.reason}`
   }
   const team = myTeam()
-  if (!team.opened) return `Your opening meld needs ${openingRequirement(team.total)} points. You can also discard without melding.`
+  if (!team.opened) return `Your opening meld needs ${openingRequirement(team.total, match)} points. You can also discard without melding.`
   if (match.rules === "house") {
     const tally = canastaBreakdown(team.melds)
     const bits = `Pure ${tally.pure} · Mixed ${tally.mixed} · Wild ${tally.wild}`
@@ -440,13 +440,13 @@ function layoffRank(cards) {
 function rulesHtml() {
   const house = (match?.rules || ui.rules) === "house"
   const body = house
-    ? `<p>House rules is one game. Everyone scores alone, even with four players. The pack is one more deck than there are players, and each deck is 52 cards plus two jokers. Jokers and twos are wild.</p>
+    ? `<p>House rules is four hands. Everyone scores alone, even with four players. The pack is one more deck than there are players, and each deck is 52 cards plus two jokers. Jokers and twos are wild.</p>
     <ul>
       <li>You are dealt 13 cards and a face-down foot of 13. Draw two cards, meld if you want, then discard one.</li>
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
       <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). You may make as many as you like.</li>
-      <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. The game also ends when the stock is used up.</li>
-      <li>Opening counts, frozen piles, red threes, and black threes follow classic Canasta. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
+      <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
+      <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth. Frozen piles, red threes, and black threes follow classic Canasta. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
     : `<p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
     <ul>
@@ -506,13 +506,18 @@ function summaryHtml() {
     .join("")
   const done = match.phase === "matchEnd"
   const winner = done ? `<p class="total">${esc(winnerText())}</p>` : ""
-  const heading = done ? (match.rules === "house" ? "Game over" : "Match over") : `Hand ${hand.hand} of 4`
+  const heading = done ? "Match over" : `Hand ${hand.hand} of 4`
+  const nextOpen =
+    !done && match.rules === "house"
+      ? `<p>The next hand opens at ${openingRequirement(0, { rules: "house", handNumber: hand.hand + 1 })}.</p>`
+      : ""
   const next = done
     ? `<button type="button" class="primary" data-act="again">Play again</button>`
     : `<button type="button" class="primary" data-act="next">Next hand</button>`
   return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="sum-title">
     <h2 id="sum-title">${heading}</h2>
     <p>${reason}</p>
+    ${nextOpen}
     ${lines}
     ${winner}
     <div class="actions"><button type="button" data-act="close">Look at the table</button>${next}</div>
@@ -533,7 +538,7 @@ function lobbyHtml() {
     .map((count) => `<button type="button" class="choice${ui.opponents === count ? " on" : ""}" data-opponents="${count}"><b>${count}</b><span>${count === 1 ? "opponent" : "opponents"}</span></button>`)
     .join("")
   const modes = [
-    ["house", "House rules", "Everyone solo"],
+    ["house", "House rules", "Solo, four hands"],
     ["classic", "Classic", "Four hands"],
   ]
     .map(
@@ -551,7 +556,7 @@ function lobbyHtml() {
   return `<main class="lobby"><section class="panel">
     <p class="eyebrow">${house ? "House rules" : "Classic"}</p>
     <h1>Canasta</h1>
-    <p class="lede">${house ? "One game, a bigger pack, and a foot. You, and up to three opponents." : "Four hands on a green table. You, and up to three opponents."}</p>
+    <p class="lede">${house ? "Four hands, a bigger pack, and a foot. You, and up to three opponents." : "Four hands on a green table. You, and up to three opponents."}</p>
     <div class="fan" aria-hidden="true">${sample.map((card) => cardMarkup(card)).join("")}</div>
     <div class="choices modes" role="group" aria-label="Rules">${modes}</div>
     <div class="choices" role="group" aria-label="Number of AI opponents">${choices}</div>
@@ -594,11 +599,12 @@ function tableHtml() {
         ? pop(popButton("again", "Play again", { primary: true }), "pop-inline")
         : ""
   const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row" data-anchor="foot">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
-  const dealLabel = match.rules === "house" ? "House rules" : `Hand ${match.handNumber} of 4`
+  const openAt = match.rules === "house" ? openingRequirement(0, match) : null
+  const dealLabel = openAt ? `Hand ${match.handNumber} of 4 · open ${openAt}` : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
     <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
-    <div class="scoreline"><span>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
+    <div class="scoreline"><span${openAt ? ` title="Opening meld needs ${openAt} points"` : ""}>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
     ${piles()}

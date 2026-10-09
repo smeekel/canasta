@@ -47,7 +47,7 @@ function openingPlan(state, info = null) {
   const hand = seat(state).hand
   const extra = info?.top && info.canTake ? info.top : null
   const frozen = info ? info.frozen : !side(state).opened
-  const target = openingRequirement(side(state).total)
+  const target = openingRequirement(side(state).total, state)
   const fromStock = !!state.turnState?.drewFromStock && !extra
   const needed = canastasNeeded(state)
   const wilds = hand.filter(isWild).slice().sort((a, b) => cardPoints(a) - cardPoints(b))
