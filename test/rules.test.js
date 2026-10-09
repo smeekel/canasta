@@ -654,10 +654,67 @@ test("a completed canasta refuses an eighth card", () => {
   state.discard = [queens[7]]
   const info = discardInfo(state)
   assert.equal(info.canTake, false)
-  assert.match(info.reason, /complete/)
   const taken = apply(state, { type: "take", groups: [] })
   assert.equal(taken.ok, false)
   assert.equal(state.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 7)
+})
+
+test("a finished canasta can be followed by another of the same rank", () => {
+  const state = houseDeal(1, 5)
+  const sevens = extract(state, (card) => card.rank === 7, 12)
+  const filler = extract(state, (card) => card.rank === 9, 4)
+  scoop(state)
+  const player = state.players[0]
+  player.foot = []
+  state.teams[0].opened = true
+  state.teams[0].melds = [{ rank: 7, cards: sevens.slice(0, 4) }]
+  player.hand = [...sevens.slice(4, 7), ...filler]
+  asMeld(state)
+
+  const early = apply(state, { type: "meld", cardIds: sevens.slice(4, 7).map((card) => card.id) })
+  assert.equal(early.ok, false)
+  assert.match(early.error, /Add to the meld/)
+  assert.equal(state.teams[0].melds.length, 1)
+  assert.equal(state.teams[0].melds[0].cards.length, 4)
+
+  state.teams[0].melds = [{ rank: 7, cards: sevens.slice(0, 7) }]
+  player.hand = [...sevens.slice(7, 10), ...filler]
+  act(state, { type: "meld", cardIds: sevens.slice(7, 10).map((card) => card.id) })
+  let piles = state.teams[0].melds.filter((meld) => meld.rank === 7)
+  assert.equal(piles.length, 2)
+  assert.equal(piles[0].cards.length, 7)
+  assert.equal(piles[1].cards.length, 3)
+
+  player.hand = [sevens[10], ...filler]
+  act(state, { type: "layoff", cardIds: [sevens[10].id], rank: 7 })
+  assert.equal(piles[0].cards.length, 7)
+  assert.equal(piles[1].cards.length, 4)
+
+  state.phase = "draw"
+  state.turn = 0
+  state.discard = [sevens[11]]
+  state.stock = []
+  assert.equal(discardInfo(state).canTake, false)
+
+  const again = houseDeal(1, 6)
+  const more = extract(again, (card) => card.rank === 7, 10)
+  const extra = extract(again, (card) => card.rank === 4, 3)
+  scoop(again)
+  again.players[0].foot = []
+  again.teams[0].opened = true
+  again.teams[0].melds = [{ rank: 7, cards: more.slice(0, 7) }]
+  again.players[0].hand = [...more.slice(7, 9), ...extra]
+  again.discard = [more[9]]
+  again.stock = []
+  setTurn(again, 0)
+  const allowed = discardInfo(again)
+  assert.equal(allowed.canTake, true)
+  assert.equal(allowed.mode, "pair")
+  act(again, { type: "take", groups: [[more[7].id, more[8].id]] })
+  const next = again.teams[0].melds.filter((meld) => meld.rank === 7)
+  assert.equal(next.length, 2)
+  assert.equal(next[0].cards.length, 7)
+  assert.equal(next[1].cards.length, 3)
 })
 
 test("a finished wild canasta can be followed by another", () => {

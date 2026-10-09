@@ -5,7 +5,8 @@
  * House rules are four hands, everyone alone. The pack is (players + 1) decks.
  * Each player has a hand and a foot of 13 and draws two cards. The opening count
  * is 50, then 90, then 120, then 150. The discard pile can be taken only when
- * its top card starts a new meld. Going out takes a pure canasta,
+ * its top card starts a new meld. A finished canasta is frozen, and another
+ * meld of that rank can be started once it is complete. Going out takes a pure canasta,
  * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
  * State is mutated in place. apply() returns {ok:true} or {ok:false, error}.
@@ -300,6 +301,10 @@ export function countCanastas(melds) {
   return melds.filter((meld) => meld.rank !== 3 && meld.cards.length >= 7).length
 }
 
+function openMeld(melds, rank) {
+  return melds.find((meld) => meld.rank === rank && meld.cards.length < 7)
+}
+
 export function discardInfo(state, playerIndex = state.turn) {
   const player = state.players[playerIndex]
   const team = state.teams[player.team]
@@ -337,13 +342,9 @@ export function discardInfo(state, playerIndex = state.turn) {
   }
   const naturals = player.hand.filter((card) => card.rank === top.rank)
   const wilds = player.hand.filter(isWild)
-  const existing = team.melds.find((meld) => meld.rank === top.rank)
-  if (isHouse(state) && existing && existing.cards.length < 7) {
+  const existing = openMeld(team.melds, top.rank)
+  if (isHouse(state) && existing) {
     info.reason = "That card matches a meld you already have. Take a discard only when it starts a new meld."
-    return info
-  }
-  if (existing && existing.cards.length >= 7) {
-    info.reason = "That canasta is complete."
     return info
   }
   if (existing && frozen && existing.cards.length + 3 > 7) {
@@ -693,10 +694,10 @@ function commitLayoffTake(state) {
   const hadMelded = player.hasMelded
   const initialRanks = team.melds.map((meld) => meld.rank)
   const top = state.discard.pop()
-  const meld = team.melds.find((item) => item.rank === top.rank)
+  const meld = openMeld(team.melds, top.rank)
   if (!meld) {
     state.discard.push(top)
-    return fail("You have no meld of that rank.")
+    return fail(team.melds.some((item) => item.rank === top.rank) ? "That canasta is complete." : "You have no meld of that rank.")
   }
   const before = meld.cards.length
   if (before >= 7) {
@@ -752,9 +753,8 @@ function commitGroupedTake(state, groups) {
     const parsed = describeMeld(withTop, false, isHouse(state))
     if (!parsed.ok) return fail(parsed.error)
     if (built.some((meld) => meld.rank === parsed.rank)) return fail("Only one meld of each rank.")
-    const existing = team.melds.find((meld) => meld.rank === parsed.rank)
+    const existing = openMeld(team.melds, parsed.rank)
     if (existing) {
-      if (existing.cards.length >= 7) return fail("That canasta is complete.")
       if (existing.cards.length + withTop.length > 7) return fail("A canasta stops at 7 cards.")
       const merged = describeMeld([...existing.cards, ...withTop], false, isHouse(state))
       if (!merged.ok) return fail(merged.error)
@@ -774,7 +774,7 @@ function commitGroupedTake(state, groups) {
   const handAfter = player.hand.length - allIds.length + rest.length
   const meldsAfter = team.melds.map((meld) => ({ rank: meld.rank, cards: meld.cards.slice() }))
   for (const meld of built) {
-    if (meld.merge) meldsAfter.find((item) => item.rank === meld.rank).cards.push(...meld.cards)
+    if (meld.merge) openMeld(meldsAfter, meld.rank).cards.push(...meld.cards)
     else meldsAfter.push({ rank: meld.rank, cards: meld.cards })
   }
   const blocked = blockEmpty(state, player, handAfter, meldsAfter)
@@ -785,7 +785,7 @@ function commitGroupedTake(state, groups) {
   let laidOff = false
   for (const meld of built) {
     if (meld.merge) {
-      const existing = team.melds.find((item) => item.rank === meld.rank)
+      const existing = openMeld(team.melds, meld.rank)
       const before = existing.cards.length
       existing.cards.push(...meld.cards)
       if (before < 7 && existing.cards.length >= 7) madeCanasta = true
@@ -894,7 +894,7 @@ function meld(state, cardIds) {
     if (team.melds.some((meld) => meld.rank < 0 && meld.cards.length < 7)) {
       return fail("Add those wild cards to your wild meld.")
     }
-  } else if (team.melds.some((meld) => meld.rank === parsed.rank)) {
+  } else if (openMeld(team.melds, parsed.rank)) {
     return fail("You already have that rank. Add to the meld.")
   }
   const handAfter = player.hand.length - cardIds.length
@@ -936,12 +936,14 @@ function layoff(state, cardIds, rank) {
   const meldRank = naturals.length ? naturals[0].rank : rank
   if (meldRank == null) return fail("Choose which meld gets the wild card.")
   if (naturals.length && rank != null && rank !== meldRank) return fail("Those cards do not match that meld.")
-  let meld = team.melds.find((item) => item.rank === meldRank)
-  if (meldRank < 0 && !meld) {
+  let meld = openMeld(team.melds, meldRank)
+  if (!meld && meldRank < 0 && !team.melds.some((item) => item.rank === meldRank)) {
     meld = team.melds.find((item) => item.rank < 0 && item.cards.length < 7)
   }
-  if (!meld) return fail("You have no meld of that rank.")
-  if (meld.cards.length >= 7) return fail("That canasta is complete.")
+  if (!meld) {
+    const finished = team.melds.some((item) => item.rank === meldRank)
+    return fail(finished ? "That canasta is complete." : "You have no meld of that rank.")
+  }
   if (meld.cards.length + pulled.cards.length > 7) return fail("A canasta stops at 7 cards.")
   const parsed = describeMeld([...meld.cards, ...pulled.cards], false, isHouse(state))
   if (!parsed.ok) return fail(parsed.error)

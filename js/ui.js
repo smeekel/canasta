@@ -286,6 +286,14 @@ function stageCheck(cards) {
 function meldCheck(cards) {
   if (!myTeam().opened) return stageCheck(cards)
   if (layoffRank(cards) != null) return { ok: true, error: "" }
+  const naturals = cards.filter(isNatural)
+  if (
+    naturals.length &&
+    naturals.every((card) => card.rank === naturals[0].rank) &&
+    myTeam().melds.some((meld) => meld.rank === naturals[0].rank && meld.cards.length < 7)
+  ) {
+    return { ok: false, error: "Add to the meld you already have. A new one starts after that canasta is complete." }
+  }
   if (canLeaveNow() && cards.length === myHand().length && cards.every(isBlackThree)) {
     const blacks = describeMeld(cards, true)
     if (blacks.ok && blacks.black) return { ok: true, error: "", go: true }
@@ -432,7 +440,7 @@ function layoffRank(cards) {
   const rank = naturals.length ? naturals[0].rank : ui.focusRank
   if (rank == null) return null
   if (!cards.every((card) => isWild(card) || card.rank === rank)) return null
-  const meld = myTeam().melds.find((item) => item.rank === rank)
+  const meld = myTeam().melds.find((item) => item.rank === rank && item.cards.length < 7)
   if (!meld || meld.cards.length + cards.length > 7) return null
   return rank
 }
@@ -444,16 +452,16 @@ function rulesHtml() {
     <ul>
       <li>You are dealt 13 cards and a face-down foot of 13. Draw two cards, meld if you want, then discard one.</li>
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
-      <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). You may make as many as you like.</li>
+      <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). A finished canasta is frozen. You may start another of the same rank only after it is complete, so one unfinished meld of each rank is open at a time.</li>
       <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
       <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth.</li>
-      <li>You may take the discard pile only when the top card starts a new meld. A card that matches a meld already on the table stays there. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
+      <li>You may take the discard pile only when the top card starts a new meld. A card that matches an unfinished meld stays there. Once that canasta is complete, the same rank can start another meld. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
     : `<p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
     <ul>
       <li>With one opponent, draw two cards and make two canastas to go out. With two opponents, everyone plays alone. With three, you and Ellis are partners.</li>
       <li>On your turn, draw from the stock or take the whole discard pile, meld if you want, then discard one card.</li>
-      <li>A meld needs at least two natural cards and at most three wild cards. A canasta is seven cards: 500 if it has no wilds, 300 if it does.</li>
+      <li>A meld needs at least two natural cards and at most three wild cards. A canasta is seven cards: 500 if it has no wilds, 300 if it does. A finished canasta is frozen, and another meld of that rank can be started once it is complete.</li>
       <li>Red threes are bonuses. They are tabled automatically. Four of them score 800, and they count against a side that never melds.</li>
       <li>The pile is frozen until your side opens, and whenever a wild card or red three is in it. A frozen pile can be taken only with a natural pair. A black three on top only blocks the next take.</li>
       <li>The first meld must total 15, 50, 90, or 120 points as your score rises. Going out scores 100, or 200 if you go out concealed on the same turn you first meld.</li>

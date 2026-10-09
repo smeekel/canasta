@@ -240,7 +240,7 @@ function houseAction(state) {
   }
 
   for (const [rank, cards] of naturalsOf(hand)) {
-    if (cards.length < 7 || melds.some((meld) => meld.rank === rank)) continue
+    if (cards.length < 7 || melds.some((meld) => meld.rank === rank && meld.cards.length < 7)) continue
     const give = cards.slice(0, 7)
     const after = melds.concat([{ rank, cards: give }])
     if (!place(give.length, after)) continue
@@ -267,7 +267,7 @@ function houseAction(state) {
       if (place(1, after)) return { type: "layoff", cardIds: [wilds[0].id], rank: starter.rank }
     }
     for (const [rank, cards] of naturalsOf(hand)) {
-      if (cards.length < 2 || melds.some((meld) => meld.rank === rank)) continue
+      if (cards.length < 2 || melds.some((meld) => meld.rank === rank && meld.cards.length < 7)) continue
       if (!place(3, melds.concat([{ rank, cards: cards.slice(0, 2).concat(wilds[0]) }]))) continue
       return { type: "meld", cardIds: [cards[0].id, cards[1].id, wilds[0].id] }
     }
@@ -282,7 +282,7 @@ function nextImprovement(state) {
 
   const lay = (cards, rank) => {
     if (!cards.length) return null
-    const meld = melds.find((item) => item.rank === rank)
+    const meld = melds.find((item) => item.rank === rank && item.cards.length < 7)
     if (!meld) return null
     const completes = meld.cards.length < 7 && meld.cards.length + cards.length >= 7
     if (!canPlace(state, cards.length, completes || have >= canastasNeeded(state))) return null
@@ -311,7 +311,7 @@ function nextImprovement(state) {
   }
 
   for (const [rank, cards] of naturalsOf(hand)) {
-    if (cards.length < 3 || melds.some((meld) => meld.rank === rank)) continue
+    if (cards.length < 3 || melds.some((meld) => meld.rank === rank && meld.cards.length < 7)) continue
     const give = cards.slice(0, 7)
     const completes = give.length >= 7
     if (!canPlace(state, give.length, completes)) continue
@@ -340,8 +340,8 @@ function dumpAction(state) {
   const wild = hand.find((card) => card.rank === 2) || hand.find(isWild)
   const keepWilds = state.rules === "house" && canastaBreakdown(melds).wild < 1
   for (const [rank, cards] of naturalsOf(hand)) {
-    const meld = melds.find((item) => item.rank === rank)
-    if (meld && cards.length && meld.cards.length < 7) {
+    const meld = melds.find((item) => item.rank === rank && item.cards.length < 7)
+    if (meld && cards.length) {
       const give = cards.slice(0, 7 - meld.cards.length)
       const completes = meld.cards.length + give.length >= 7
       if (canPlace(state, give.length, completes)) return { type: "layoff", cardIds: give.map((card) => card.id), rank }
