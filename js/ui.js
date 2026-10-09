@@ -220,6 +220,24 @@ function stagedPreview() {
   return `<div class="stage"><div class="meld-head"><span>${ui.taking ? "Taking the discard" : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then meld.</p>"}</div>${open}</div>`
 }
 
+function takeReady() {
+  if (!ui.staged.length) return { ok: false, reason: "Add a meld that uses the discard." }
+  const top = match.discard.at(-1)
+  const usesTop = ui.staged.some((ids) =>
+    ids.some((id) => {
+      const card = myHand().find((item) => item.id === id)
+      return card && isNatural(card) && card.rank === top?.rank
+    })
+  )
+  if (!usesTop) return { ok: false, reason: "Add a meld that uses the discard." }
+  if (!myTeam().opened) {
+    const need = openingRequirement(myTeam().total, match)
+    const points = stagedPoints(false)
+    if (points < need) return { ok: false, reason: `${points} of ${need} points. Add more to the opening meld.` }
+  }
+  return { ok: true, reason: "" }
+}
+
 function stagedPoints(topAlreadyUsed = false) {
   const top = ui.taking ? match.discard.at(-1) : null
   let usedTop = topAlreadyUsed
@@ -358,9 +376,9 @@ function piles() {
   else if (declining) stockPop = pop(popButton("decline", "End hand", { primary: !info.canTake }))
   let discardPop = ""
   if (ui.taking && myTurn()) {
-    const ready = ui.staged.length > 0
+    const ready = takeReady()
     discardPop = pop(
-      popButton("take", "Take pile", { primary: true, disabled: !ready, title: ready ? "" : "Add a meld that uses the discard." }) +
+      popButton("take", "Take pile", { primary: ready.ok, disabled: !ready.ok, title: ready.reason }) +
         popButton("cancel-take", "Cancel")
     )
   } else if (myTurn() && match.phase === "draw" && info.canTake) {
@@ -395,7 +413,14 @@ function hint() {
       if (!check.ok && check.error) return check.error
     }
   }
-  if (ui.taking) return "Choose a natural pair that matches the discard. Add more melds if you still need points."
+  if (ui.taking) {
+    if (!myTeam().opened && ui.staged.length) {
+      const need = openingRequirement(myTeam().total, match)
+      const points = stagedPoints(false)
+      if (points < need) return `Opening meld needs ${need} points. That selection is ${points}.`
+    }
+    return "Choose a natural pair that matches the discard. Add more melds if you still need points."
+  }
   if (match.phase === "draw") {
     if (match.mayDecline) return "The stock is empty. Take the discard, or end the hand."
     const info = discardInfo(match, 0)

@@ -305,6 +305,98 @@ function openMeld(melds, rank) {
   return melds.find((meld) => meld.rank === rank && meld.cards.length < 7)
 }
 
+function canAffordOpening(state, player, top) {
+  const required = openingRequirement(state.teams[player.team].total, state)
+  const house = isHouse(state)
+  const hand = player.hand
+  const wilds = hand.filter(isWild).sort((a, b) => cardPoints(b) - cardPoints(a))
+  const groups = new Map()
+  for (const card of hand) {
+    if (!isNatural(card)) continue
+    if (!groups.has(card.rank)) groups.set(card.rank, [])
+    groups.get(card.rank).push(card)
+  }
+  if ((groups.get(top.rank) || []).length < 2) return false
+  const rest = state.discard.slice(0, -1).filter((card) => !isRedThree(card)).length
+  const foot = hasFoot(player)
+  const ranks = [...groups.keys()].sort((a, b) => (a === top.rank ? -1 : b === top.rank ? 1 : a - b))
+  const wildPoints = wilds.map(cardPoints)
+  let nodes = 0
+  let found = false
+
+  function legal(usedCards, points, melds) {
+    if (points < required) return false
+    const handAfter = hand.length - usedCards + rest
+    if (foot || handAfter >= 2) return true
+    return handAfter === 0 && meetsGoOut(state, melds)
+  }
+
+  function walk(index, wildUsed, usedCards, points, melds) {
+    if (found || ++nodes > 20000) return
+    const rank = ranks[index]
+    const isTop = rank === top.rank
+    if (isTop && points >= required && (foot || rest >= 2)) {
+      found = true
+      return
+    }
+    if (!isTop && legal(usedCards, points, melds)) {
+      found = true
+      return
+    }
+    if (index === ranks.length) {
+      const left = wilds.length - wildUsed
+      if (house && left >= 3) {
+        const take = Math.min(left, 7)
+        const extra = wildPoints.slice(wildUsed, wildUsed + take).reduce((sum, value) => sum + value, 0)
+        const wildMeld = { rank: -1, cards: wilds.slice(wildUsed, wildUsed + take) }
+        if (legal(usedCards + take, points + extra, melds.concat([wildMeld]))) found = true
+      }
+      return
+    }
+    let ceiling = points
+    for (let later = index; later < ranks.length; later++) {
+      const laterRank = ranks[later]
+      const laterCards = groups.get(laterRank)
+      const laterTop = laterRank === top.rank
+      const count = Math.min(laterCards.length, laterTop ? 6 : 7)
+      if (count < 2) continue
+      if (laterTop) ceiling += cardPoints(top)
+      ceiling += laterCards.slice(0, count).reduce((sum, card) => sum + cardPoints(card), 0)
+    }
+    ceiling += wildPoints.slice(wildUsed).reduce((sum, value) => sum + value, 0)
+    if (ceiling < required) return
+
+    if (!isTop) walk(index + 1, wildUsed, usedCards, points, melds)
+    const cards = groups.get(rank)
+    const wildLeft = wilds.length - wildUsed
+    const maxNatural = Math.min(cards.length, isTop ? 6 : 7)
+    for (let count = 2; count <= maxNatural; count++) {
+      const naturalPoints = cards.slice(0, count).reduce((sum, card) => sum + cardPoints(card), 0)
+      const length = count + (isTop ? 1 : 0)
+      const maxWild = Math.min(3, wildLeft, 7 - length)
+      const minWild = length >= 3 ? 0 : 1
+      if (minWild > maxWild) continue
+      for (let wildCount = minWild; wildCount <= maxWild; wildCount++) {
+        const wildScore = wildPoints.slice(wildUsed, wildUsed + wildCount).reduce((sum, value) => sum + value, 0)
+        const meldCards = cards.slice(0, count).concat(wilds.slice(wildUsed, wildUsed + wildCount))
+        if (isTop) meldCards.push(top)
+        walk(
+          index + 1,
+          wildUsed + wildCount,
+          usedCards + count + wildCount,
+          points + naturalPoints + (isTop ? cardPoints(top) : 0) + wildScore,
+          melds.concat([{ rank, cards: meldCards }])
+        )
+        if (found) return
+      }
+    }
+  }
+
+  walk(0, 0, 0, 0, [])
+  if (!found && nodes > 20000) return true
+  return found
+}
+
 export function discardInfo(state, playerIndex = state.turn) {
   const player = state.players[playerIndex]
   const team = state.teams[player.team]
@@ -359,6 +451,11 @@ export function discardInfo(state, playerIndex = state.turn) {
     return info
   }
   if (naturals.length >= 2) {
+    if (!team.opened && !canAffordOpening(state, player, top)) {
+      const required = openingRequirement(team.total, state)
+      info.reason = `Opening meld needs ${required} points. That discard does not get you there.`
+      return info
+    }
     info.canTake = true
     info.mode = "pair"
     info.reason = frozen
