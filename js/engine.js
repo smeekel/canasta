@@ -122,7 +122,12 @@ export function meetsGoOut(state, melds) {
 }
 
 export function sideName(state, teamId) {
-  if (!isHouse(state) && state.playerCount === 4) return teamId === 0 ? "Your side" : "Opponents"
+  if (!isHouse(state) && state.playerCount === 4) {
+    const mates = state.players.filter((player) => player.team === teamId)
+    const you = mates.find((player) => player.isHuman)
+    if (you && you.name === "You") return "Your side"
+    return mates.map((player) => player.name).join(" & ")
+  }
   const player = state.players.find((p) => p.team === teamId)
   return player ? player.name : "Side"
 }
