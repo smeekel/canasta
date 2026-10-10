@@ -261,7 +261,7 @@ button.undo:disabled {
   overflow: visible;
   padding: 8px 0 4px;
 }
-.melds:has(.pick) { padding-top: 40px; }
+.melds:has(.pick) { padding-top: 40px; row-gap: 46px; }
 .meld {
   display: flex;
   align-items: center;
