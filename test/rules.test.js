@@ -14,6 +14,7 @@ import {
   isRedThree,
   isWild,
   openingRequirement,
+  placementAllowed,
   sideName,
 } from "../js/engine.js"
 import { planTurn } from "../js/ai.js"
@@ -860,6 +861,52 @@ test("a first meld that takes the discard still has to meet the opening count", 
   assert.equal(discardInfo(lowScore).canTake, true)
   act(lowScore, { type: "take", groups: [[fours[0].id, fours[1].id]] })
   assert.equal(lowScore.teams[0].opened, true)
+})
+
+test("a wild card can join an open wild meld while one card and the foot remain", () => {
+  const state = houseDeal(1, 9)
+  const wilds = extract(state, (card) => card.rank === 2 || card.rank === 0, 6)
+  const kings = extract(state, (card) => card.rank === 13, 5)
+  const queen = extract(state, (card) => card.rank === 12, 1)
+  const foot = extract(state, (card) => card.rank >= 4 && card.rank <= 11, 13)
+  const pure = extract(state, (card) => card.rank === 4, 7)
+  const mixedNatural = extract(state, (card) => card.rank === 7, 6)
+  const mixedWild = extract(state, (card) => card.rank === 2 || card.rank === 0, 1)
+  const wildCanasta = extract(state, (card) => card.rank === 2 || card.rank === 0, 7)
+  scoop(state)
+  const player = state.players[0]
+  const two = wilds.pop()
+  player.hand = [two, ...queen]
+  player.foot = foot
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: -1, cards: wilds },
+    { rank: 13, cards: kings },
+  ]
+  asMeld(state)
+  const grown = state.teams[0].melds.map((meld) =>
+    meld.rank < 0 ? { rank: meld.rank, cards: [...meld.cards, two] } : meld
+  )
+  assert.equal(placementAllowed(state, 0, 1, grown), true)
+  assert.equal(placementAllowed(state, 0, 0, grown), true)
+  player.foot = []
+  assert.equal(placementAllowed(state, 0, 1, grown), false)
+  assert.equal(placementAllowed(state, 0, 0, grown), false)
+  const ready = [
+    { rank: 4, cards: pure },
+    { rank: 7, cards: [...mixedNatural, ...mixedWild] },
+    { rank: -2, cards: wildCanasta },
+  ]
+  assert.equal(placementAllowed(state, 0, 0, ready), true)
+  player.foot = foot
+  act(state, { type: "layoff", cardIds: [two.id], rank: -1 })
+  const wildMeld = state.teams[0].melds.find((meld) => meld.rank < 0)
+  assert.equal(wildMeld.cards.length, 6)
+  assert.ok(wildMeld.cards.some((card) => card.id === two.id))
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 13).cards.length, 5)
+  assert.equal(player.hand.length, 1)
+  assert.equal(player.foot.length, 13)
+  assert.equal(state.phase, "meld")
 })
 
 test("AI finishes matches for every table size", () => {
