@@ -20,6 +20,7 @@ import {
   sortHand,
   suitSymbol,
 } from "./engine.js"
+import { NAME_LIMIT, playingName, rankTotals, readName, readScores, recordScore, writeName } from "./scores.js"
 import { built, repository, revision } from "./version.js"
 
 const app = document.querySelector("#app")
@@ -54,6 +55,7 @@ const ui = {
   screen: "lobby",
   rules: "house",
   speed: loadSpeed(),
+  name: readName(localStorage),
   opponents: 3,
   selected: new Set(),
   staged: [],
@@ -175,7 +177,7 @@ function meldZone(title, melds, reds, mine, anchor) {
 function opponentZones() {
   if (match.rules !== "house" && match.playerCount === 4) {
     const theirs = match.teams[1]
-    return meldZone("Opponents", theirs.melds, theirs.redThrees, false, "zone-1")
+    return meldZone(sideName(match, 1), theirs.melds, theirs.redThrees, false, "zone-1")
   }
   return match.players
     .filter((player) => !player.isHuman)
@@ -184,7 +186,7 @@ function opponentZones() {
 }
 
 function myZone() {
-  const title = match.rules !== "house" && match.playerCount === 4 ? "Your side" : "Your melds"
+  const title = match.rules !== "house" && match.playerCount === 4 ? sideName(match, me().team) : "Your melds"
   return meldZone(title, myTeam().melds, myTeam().redThrees, true, `zone-${me().team}`)
 }
 
@@ -401,7 +403,7 @@ function hint() {
   if (ui.error) return ui.error
   if (!match) return ""
   if (match.phase === "handEnd") return "Hand scored. Deal the next one when you are ready."
-  if (match.phase === "matchEnd") return "That is the match."
+  if (match.phase === "matchEnd") return "The game is over."
   const player = match.players[match.turn]
   if (!player.isHuman) return `${player.name} is playing…`
   if (myTurn() && (ui.taking || match.phase === "meld")) {
@@ -495,7 +497,7 @@ function rulesHtml() {
   return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="rules-title">
     <h2 id="rules-title">How to play</h2>
     ${body}
-    <div class="actions"><button type="button" class="primary" data-act="close">Back to the table</button></div>
+    <div class="actions">${match ? titleButton() : ""}<button type="button" class="primary" data-act="close">Back to the table</button></div>
   </section></div>`
 }
 
@@ -513,7 +515,7 @@ function scoreHtml() {
     <h2 id="score-title">Score</h2>
     ${rows || "<p>No hands have been scored yet.</p>"}
     ${totals}
-    <div class="actions"><button type="button" data-act="lobby">New match</button><button type="button" class="primary" data-act="close">Close</button></div>
+    <div class="actions">${titleButton()}<button type="button" class="primary" data-act="close">Close</button></div>
   </section></div>`
 }
 
@@ -539,33 +541,92 @@ function summaryHtml() {
       return `<div class="row"><span><strong>${esc(item.name)}</strong><br>${esc(bits.join(" · "))}</span><b>${item.delta >= 0 ? "+" : ""}${item.delta}</b></div>`
     })
     .join("")
-  const done = match.phase === "matchEnd"
-  const winner = done ? `<p class="total">${esc(winnerText())}</p>` : ""
-  const heading = done ? "Match over" : `Hand ${hand.hand} of 4`
   const nextOpen =
-    !done && match.rules === "house"
+    match.rules === "house"
       ? `<p>The next hand opens at ${openingRequirement(0, { rules: "house", handNumber: hand.hand + 1 })}.</p>`
       : ""
-  const next = done
-    ? `<button type="button" class="primary" data-act="again">Play again</button>`
-    : `<button type="button" class="primary" data-act="next">Next hand</button>`
   return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="sum-title">
-    <h2 id="sum-title">${heading}</h2>
+    <h2 id="sum-title">Hand ${hand.hand} of 4</h2>
     <p>${reason}</p>
     ${nextOpen}
     ${lines}
-    ${winner}
-    <div class="actions"><button type="button" data-act="close">Look at the table</button>${next}</div>
+    <div class="actions">${titleButton()}<button type="button" data-act="close">Look at the table</button><button type="button" class="primary" data-act="next">Next hand</button></div>
   </section></div>`
 }
 
+function titleButton() {
+  return `<button type="button" data-act="title" title="Ends this game">Title</button>`
+}
+
+function crownMarkup() {
+  return `<svg class="crown" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 16.5 6.2 8.2 10 13.5 12 4.5l2 9 3.8-5.3 3.7 8.3z"/><path d="M4 18.2h16v2.3H4z"/></svg>`
+}
+
+function placeWord(rank) {
+  const mod = rank % 100
+  const suffix = mod >= 11 && mod <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[rank % 10] || "th"
+  return `${rank}${suffix}`
+}
+
+function standings() {
+  return rankTotals(match.teams.map((team, index) => ({ name: sideName(match, index), total: team.total })))
+}
+
 function winnerText() {
-  const ranked = match.teams
-    .map((team, index) => ({ name: sideName(match, index), total: team.total }))
-    .sort((a, b) => b.total - a.total)
-  if (ranked.length > 1 && ranked[0].total === ranked[1].total) return "The match is a tie."
-  const verb = ranked[0].name === "You" || ranked[0].name === "Your side" ? "win" : "wins"
-  return `${ranked[0].name} ${verb} by ${ranked[0].total - ranked[1].total}.`
+  const ranked = standings()
+  const lead = ranked.filter((row) => row.winner)
+  if (lead.length > 1) return "The match is a tie."
+  const name = lead[0].name
+  const verb = name === "You" || name === "Your side" || name.includes(" & ") ? "win" : "wins"
+  const next = ranked.find((row) => !row.winner)
+  const margin = next ? lead[0].total - next.total : lead[0].total
+  return `${name} ${verb} by ${margin}.`
+}
+
+function finalHtml() {
+  const rows = standings()
+    .map(
+      (row) =>
+        `<li class="place${row.winner ? " first" : ""}"><span class="rank">${placeWord(row.rank)}</span><span class="who">${row.winner ? crownMarkup() : ""}<span>${esc(row.name)}</span></span><b>${row.total}</b></li>`
+    )
+    .join("")
+  return `<div class="overlay"><section class="sheet final" role="dialog" aria-labelledby="final-title">
+    <p class="eyebrow">Game over</p>
+    <h2 id="final-title">Final standings</h2>
+    <p class="final-lead">${esc(winnerText())} Four hands are complete.</p>
+    <ol class="standings">${rows}</ol>
+    <div class="actions"><button type="button" data-act="close">Look at the table</button>${titleButton()}<button type="button" class="primary" data-act="again">Play again</button></div>
+  </section></div>`
+}
+
+function medalMarkup(place) {
+  const kind = ["gold", "silver", "bronze"][place - 1]
+  if (!kind) return `<span class="rank-num">${place}</span>`
+  const label = ["Gold", "Silver", "Bronze"][place - 1]
+  return `<svg class="medal ${kind}" viewBox="0 0 32 40" role="img" aria-label="${label}"><path class="ribbon left" d="M8 2h6l2 12H8z"/><path class="ribbon right" d="M18 2h6l-2 12h-8z"/><circle cx="16" cy="26" r="11"/><text x="16" y="30" text-anchor="middle">${place}</text></svg>`
+}
+
+function scoreMeta(entry) {
+  const rules = entry.rules === "house" ? "House" : "Classic"
+  const count = entry.opponents
+  return `${rules} · ${count === 1 ? "1 opponent" : `${count} opponents`}`
+}
+
+function topScoresHtml() {
+  const scores = readScores(localStorage)
+  const rows = scores.length
+    ? `<ol>${scores
+        .map(
+          (entry, index) =>
+            `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span></span><b>${entry.score}</b></li>`
+        )
+        .join("")}</ol>`
+    : `<p class="empty-note">Finish a match to post a score.</p>`
+  return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2>${rows}</section>`
+}
+
+function nameField() {
+  return `<label class="player-name"><span>Your name</span><input type="text" maxlength="${NAME_LIMIT}" placeholder="Optional" value="${esc(ui.name)}" data-act="name" autocomplete="nickname" aria-label="Your name, optional"></label>`
 }
 
 function lobbyHtml() {
@@ -596,12 +657,14 @@ function lobbyHtml() {
     <div class="choices modes" role="group" aria-label="Rules">${modes}</div>
     <div class="choices" role="group" aria-label="Number of AI opponents">${choices}</div>
     <p class="explain">${esc(explain[ui.rules][ui.opponents])}</p>
+    ${nameField()}
     ${speedControl()}
     <div class="lobby-actions">
       <button type="button" class="primary" data-act="start">Deal the first hand</button>
       <button type="button" class="ghost" data-act="rules">How to play</button>
     </div>
     ${versionButton()}
+    ${topScoresHtml()}
   </section></main>`
 }
 
@@ -635,11 +698,12 @@ function tableHtml() {
         ? pop(popButton("again", "Play again", { primary: true }), "pop-inline")
         : ""
   const foot = match.rules === "house" && me().foot.length ? `<div class="foot-row" data-anchor="foot">${backs(me().foot.length)}<span>Your foot · ${me().foot.length}</span></div>` : ""
-  const openAt = match.rules === "house" ? openingRequirement(0, match) : null
-  const dealLabel = openAt ? `Hand ${match.handNumber} of 4 · open ${openAt}` : `Hand ${match.handNumber} of 4`
+  const openAt = match.rules === "house" && match.phase !== "matchEnd" ? openingRequirement(0, match) : null
+  const dealLabel =
+    match.phase === "matchEnd" ? "Game over" : openAt ? `Hand ${match.handNumber} of 4 · open ${openAt}` : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand"><span>${match.rules === "house" ? "House Canasta" : "Canasta"}</span>${versionButton()}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand"><span>${match.rules === "house" ? "House Canasta" : "Canasta"}</span>${versionButton()}</div><div class="top-actions"><button type="button" class="ghost" data-act="title" title="Ends this game">Title</button>${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span${openAt ? ` title="Opening meld needs ${openAt} points"` : ""}>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -698,15 +762,15 @@ function aboutHtml() {
     <p>Canasta in the browser. This build is check-in <a href="${commit}" target="_blank" rel="noopener noreferrer">${esc(revision)}</a>, stamped <time datetime="${esc(built)}">${esc(versionWhen())}</time>.</p>
     <p>The check-in is the commit this page was built from. The time is when that stamp was written.</p>
     <p><a href="${repository}" target="_blank" rel="noopener noreferrer">Source on GitHub</a></p>
-    <div class="actions"><button type="button" class="primary" data-act="close">Close</button></div>
+    <div class="actions">${match ? titleButton() : ""}<button type="button" class="primary" data-act="close">Close</button></div>
   </section></div>`
 }
 
 function modalHtml() {
   if (ui.modal === "about") return aboutHtml()
   if (ui.modal === "rules") return rulesHtml()
-  if (ui.modal === "scores" && match) return scoreHtml()
-  if (ui.modal === "summary" && match?.handSummary) return summaryHtml()
+  if (ui.modal === "scores" && match) return match.phase === "matchEnd" ? finalHtml() : scoreHtml()
+  if (ui.modal === "summary" && match?.handSummary) return match.phase === "matchEnd" ? finalHtml() : summaryHtml()
   return ""
 }
 
@@ -933,9 +997,12 @@ function animateMoves(moves, layout) {
 }
 
 async function commit(action) {
-  const before = cardPlaces(match)
+  const game = match
+  if (!game || ui.screen !== "table") return false
+  const before = cardPlaces(game)
   const layout = captureLayout()
-  const result = apply(match, action)
+  const result = apply(game, action)
+  if (ui.screen !== "table" || match !== game) return false
   if (!result.ok) {
     ui.error = result.error
     render()
@@ -943,9 +1010,10 @@ async function commit(action) {
   }
   ui.error = ""
   resetSelection()
-  const moves = movesBetween(before, cardPlaces(match), action)
+  const moves = movesBetween(before, cardPlaces(game), action)
   render()
   await animateMoves(moves, layout)
+  if (ui.screen !== "table" || match !== game) return false
   if (ui.summarize) {
     ui.summarize = false
     ui.modal = "summary"
@@ -954,10 +1022,41 @@ async function commit(action) {
   return true
 }
 
+function rememberScore() {
+  if (!match || match.phase !== "matchEnd" || match.scorePosted) return
+  if ((match.history || []).length < 4) return
+  match.scorePosted = true
+  const you = match.players.find((player) => player.isHuman)
+  if (!you) return
+  recordScore(localStorage, {
+    name: you.name || "You",
+    score: match.teams[you.team].total,
+    rules: match.rules,
+    opponents: match.playerCount - 1,
+    when: new Date().toISOString(),
+  })
+}
+
 function notePhase() {
   if (!match || match.phase === lastPhase) return
   if (match.phase === "handEnd" || match.phase === "matchEnd") ui.summarize = true
+  if (match.phase === "matchEnd") rememberScore()
   lastPhase = match.phase
+}
+
+function leaveGame() {
+  ui.screen = "lobby"
+  ui.modal = null
+  ui.values = false
+  ui.log = false
+  ui.error = ""
+  ui.busy = false
+  ui.summarize = false
+  ui.taking = false
+  lastPhase = null
+  resetSelection()
+  match = null
+  render()
 }
 
 function render() {
@@ -985,9 +1084,9 @@ async function doAction(action) {
     ok = await commit(action)
   } finally {
     ui.busy = false
-    render()
+    if (match && ui.screen === "table") render()
   }
-  if (ok) runAi()
+  if (ok && match && ui.screen === "table") runAi()
 }
 
 function stageSelection() {
@@ -1090,7 +1189,11 @@ function goOut() {
 async function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>> 0 || 1) {
   if (ui.busy) return
   ui.busy = true
+  const field = document.querySelector("[data-act=name]")
+  if (field) ui.name = writeName(localStorage, field.value.slice(0, NAME_LIMIT))
   match = createMatch({ opponents: ui.opponents, seed, rules: ui.rules })
+  const named = playingName(ui.name)
+  if (named !== "You") match.players[0].name = named
   ui.screen = "table"
   ui.modal = null
   ui.error = ""
@@ -1126,7 +1229,7 @@ async function runAi() {
     }
   } finally {
     ui.busy = false
-    render()
+    if (match && ui.screen === "table") render()
   }
 }
 
@@ -1134,7 +1237,7 @@ function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node) return
   const act = node.dataset.act
-  if (ui.busy && act !== "about" && act !== "close") return
+  if (ui.busy && act !== "about" && act !== "close" && act !== "title") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1145,7 +1248,7 @@ function onClick(event) {
     render()
     return
   }
-  if (act === "speed") return
+  if (act === "speed" || act === "name") return
   if (act === "values") {
     ui.values = !ui.values
     if (ui.values) ui.log = false
@@ -1163,13 +1266,7 @@ function onClick(event) {
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
   if (act === "start" || act === "again") return startMatch()
-  if (act === "lobby") {
-    ui.screen = "lobby"
-    ui.modal = null
-    match = null
-    render()
-    return
-  }
+  if (act === "title" || act === "lobby") return leaveGame()
   if (!match) return
   if (act === "card") {
     const id = Number(node.dataset.id)
@@ -1258,6 +1355,13 @@ function publishVersion() {
 }
 
 publishVersion()
+function onName(event) {
+  const node = event.target.closest("[data-act=name]")
+  if (!node) return
+  ui.name = writeName(localStorage, node.value.slice(0, NAME_LIMIT))
+}
+
 app.addEventListener("click", onClick)
 app.addEventListener("input", onSpeed)
+app.addEventListener("input", onName)
 render()

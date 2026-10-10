@@ -14,6 +14,7 @@ import {
   isRedThree,
   isWild,
   openingRequirement,
+  sideName,
 } from "../js/engine.js"
 import { planTurn } from "../js/ai.js"
 
@@ -104,6 +105,17 @@ test("deal sizes, red threes, and a legal upcard", () => {
     assert.equal(isWild(top) || isRedThree(top), false)
     assert.equal(allCards(state).length, 108)
   }
+})
+
+test("a saved name replaces You on the scoreboard", () => {
+  const state = fresh(3, 6)
+  assert.equal(sideName(state, 0), "Your side")
+  assert.equal(sideName(state, 1), "Mina & Noah")
+  state.players[0].name = "Ada"
+  assert.equal(sideName(state, 0), "Ada & Ellis")
+  const solo = fresh(1, 7)
+  solo.players[0].name = "Ada"
+  assert.equal(sideName(solo, 0), "Ada")
 })
 
 test("opening requirements follow the classic table", () => {
