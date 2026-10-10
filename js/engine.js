@@ -285,6 +285,10 @@ function blockEmpty(state, player, handAfter, meldsAfter) {
   return null
 }
 
+export function placementAllowed(state, playerIndex, handAfter, meldsAfter) {
+  return !blockEmpty(state, state.players[playerIndex], handAfter, meldsAfter)
+}
+
 function pickupFoot(state, player) {
   if (player.hand.length || !hasFoot(player)) return false
   player.hand = player.foot

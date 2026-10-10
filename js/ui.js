@@ -15,6 +15,7 @@ import {
   isWild,
   meetsGoOut,
   openingRequirement,
+  placementAllowed,
   rankLabel,
   sideName,
   sortHand,
@@ -281,9 +282,10 @@ function canLeaveNow() {
   return countCanastas(team.melds) >= canastasNeeded(match)
 }
 
-function popButton(act, label, { primary = false, disabled = false, title = "" } = {}) {
+function popButton(act, label, { primary = false, disabled = false, title = "", rank = null } = {}) {
   const tip = title ? ` title="${esc(title)}"` : ""
-  return `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${act}"${disabled ? " disabled" : ""}${tip}>${esc(label)}</button>`
+  const rankAttr = rank == null ? "" : ` data-rank="${rank}"`
+  return `<button type="button" class="${primary ? "primary" : "ghost"}" data-act="${act}"${disabled ? " disabled" : ""}${tip}${rankAttr}>${esc(label)}</button>`
 }
 
 function pop(html, extra = "") {
@@ -334,12 +336,14 @@ function handChoice(cards) {
   if (cards.length === 1) {
     const blocked = ui.staged.length > 0
     const add = !blocked && myTeam().opened && layoffRank(cards) != null
+    const wildAdd = blocked ? null : wildAddChoice(cards)
     const buttons = []
     if (add) buttons.push({ act: "meld-btn", label: "Add", primary: true })
+    if (wildAdd) buttons.push(wildAdd)
     buttons.push({
       act: "discard-btn",
       label: "Discard",
-      primary: !add && !blocked,
+      primary: !add && !wildAdd && !blocked,
       disabled: blocked,
       title: blocked ? "Open the staged melds before discarding." : "",
     })
@@ -348,17 +352,19 @@ function handChoice(cards) {
   if (cards.length > 1) {
     const check = meldCheck(cards)
     const adding = check.ok && !check.go && myTeam().opened && layoffRank(cards) != null
-    return {
-      buttons: [
-        {
-          act: check.go ? "go" : myTeam().opened ? "meld-btn" : "stage",
-          label: check.go ? "Go out" : adding ? "Add" : "Meld",
-          primary: check.ok,
-          disabled: !check.ok,
-          title: check.error,
-        },
-      ],
-    }
+    const wildAdd = wildAddChoice(cards)
+    if (wildAdd && !adding) return { buttons: [wildAdd] }
+    const buttons = [
+      {
+        act: check.go ? "go" : myTeam().opened ? "meld-btn" : "stage",
+        label: check.go ? "Go out" : adding ? "Add" : "Meld",
+        primary: check.ok,
+        disabled: !check.ok,
+        title: check.error,
+      },
+    ]
+    if (wildAdd) buttons.push(wildAdd)
+    return { buttons }
   }
   return null
 }
@@ -408,8 +414,15 @@ function hint() {
   if (!player.isHuman) return `${player.name} is playing…`
   if (myTurn() && (ui.taking || match.phase === "meld")) {
     const cards = selectedCards()
-    if (match.phase === "meld" && cards.length && cards.every(isWild) && eligibleWildMelds(cards).length > 1) {
-      return "Add the wild card to one of the highlighted melds."
+    if (match.phase === "meld" && cards.length && cards.every(isWild)) {
+      const targets = eligibleWildMelds(cards)
+      const aimed = layoffRank(cards)
+      const wild = targets.some((meld) => meld.rank < 0)
+      const natural = targets.some((meld) => meld.rank >= 0)
+      if (wild && natural && (aimed == null || aimed >= 0)) {
+        return "Add to the wild meld, or tap Add on another highlighted meld."
+      }
+      if (targets.length > 1) return "Add the wild card to one of the highlighted melds."
     }
     if (cards.length > 1) {
       const check = ui.taking || !myTeam().opened ? stageCheck(cards) : meldCheck(cards)
@@ -448,12 +461,25 @@ function hint() {
 function eligibleWildMelds(cards) {
   if (!myTurn() || match.phase !== "meld" || ui.staged.length) return []
   if (!cards.length || !cards.every(isWild) || !myTeam().opened) return []
-  const left = myHand().length - cards.length
-  if (left < 2 && !(left === 0 && me().foot?.length) && !canLeaveNow()) return []
   const house = match.rules === "house"
-  return myTeam().melds.filter(
-    (meld) => meld.cards.length + cards.length <= 7 && describeMeld([...meld.cards, ...cards], false, house).ok
-  )
+  const left = myHand().length - cards.length
+  return myTeam().melds.filter((meld) => {
+    if (meld.cards.length + cards.length > 7) return false
+    if (!describeMeld([...meld.cards, ...cards], false, house).ok) return false
+    const after = myTeam().melds.map((item) =>
+      item === meld ? { rank: item.rank, cards: [...item.cards, ...cards] } : item
+    )
+    return placementAllowed(match, 0, left, after)
+  })
+}
+
+function wildAddChoice(cards) {
+  if (!cards.length || !cards.every(isWild)) return null
+  const aimed = layoffRank(cards)
+  if (aimed != null && aimed < 0) return null
+  const wildTarget = eligibleWildMelds(cards).find((meld) => meld.rank < 0)
+  if (!wildTarget) return null
+  return { act: "add-wild", label: "Add to wilds", primary: aimed == null, rank: wildTarget.rank }
 }
 
 function layoffRank(cards) {
