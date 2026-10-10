@@ -20,6 +20,7 @@ import {
   sortHand,
   suitSymbol,
 } from "./engine.js"
+import { built, repository, revision } from "./version.js"
 
 const app = document.querySelector("#app")
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -575,6 +576,7 @@ function lobbyHtml() {
       <button type="button" class="primary" data-act="start">Deal the first hand</button>
       <button type="button" class="ghost" data-act="rules">How to play</button>
     </div>
+    ${versionButton()}
   </section></main>`
 }
 
@@ -612,7 +614,7 @@ function tableHtml() {
   const dealLabel = openAt ? `Hand ${match.handNumber} of 4 · open ${openAt}` : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand">${match.rules === "house" ? "House Canasta" : "Canasta"}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand"><span>${match.rules === "house" ? "House Canasta" : "Canasta"}</span>${versionButton()}</div><div class="top-actions">${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span${openAt ? ` title="Opening meld needs ${openAt} points"` : ""}>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -654,7 +656,29 @@ function valuesFlyout() {
   </aside>`
 }
 
+function versionWhen() {
+  const when = new Date(built)
+  if (Number.isNaN(when.getTime())) return built
+  return `${when.toISOString().slice(0, 16).replace("T", " ")} UTC`
+}
+
+function versionButton() {
+  return `<button type="button" class="version" data-act="about" title="About this build">${esc(revision)} · ${esc(versionWhen())}</button>`
+}
+
+function aboutHtml() {
+  const commit = `${repository}/commit/${revision}`
+  return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="about-title">
+    <h2 id="about-title">About</h2>
+    <p>Canasta in the browser. This build is check-in <a href="${commit}" target="_blank" rel="noopener noreferrer">${esc(revision)}</a>, stamped <time datetime="${esc(built)}">${esc(versionWhen())}</time>.</p>
+    <p>The check-in is the commit this page was built from. The time is when that stamp was written.</p>
+    <p><a href="${repository}" target="_blank" rel="noopener noreferrer">Source on GitHub</a></p>
+    <div class="actions"><button type="button" class="primary" data-act="close">Close</button></div>
+  </section></div>`
+}
+
 function modalHtml() {
+  if (ui.modal === "about") return aboutHtml()
   if (ui.modal === "rules") return rulesHtml()
   if (ui.modal === "scores" && match) return scoreHtml()
   if (ui.modal === "summary" && match?.handSummary) return summaryHtml()
@@ -1083,7 +1107,9 @@ async function runAi() {
 
 function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
-  if (!node || ui.busy) return
+  if (!node) return
+  const act = node.dataset.act
+  if (ui.busy && act !== "about" && act !== "close") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1094,7 +1120,6 @@ function onClick(event) {
     render()
     return
   }
-  const act = node.dataset.act
   if (act === "speed") return
   if (act === "values") {
     ui.values = !ui.values
@@ -1108,6 +1133,7 @@ function onClick(event) {
     render()
     return
   }
+  if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), render())
   if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), render())
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
@@ -1201,6 +1227,12 @@ function onSpeed(event) {
   })
 }
 
+function publishVersion() {
+  const meta = document.querySelector('meta[name="version"]')
+  if (meta) meta.content = `${revision} ${built}`
+}
+
+publishVersion()
 app.addEventListener("click", onClick)
 app.addEventListener("input", onSpeed)
 render()
