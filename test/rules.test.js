@@ -755,6 +755,101 @@ test("AI finishes a house-rules game", () => {
   }
 })
 
+test("a first meld that takes the discard still has to meet the opening count", () => {
+  const short = houseDeal(1, 21)
+  const sevens = extract(short, (card) => card.rank === 7, 3)
+  const junk = [8, 9, 10, 11].map((rank) => extract(short, (card) => card.rank === rank, 1)[0])
+  const buried = extract(short, (card) => card.rank === 0, 1)[0]
+  scoop(short)
+  short.players[0].hand = [sevens[0], sevens[1], ...junk]
+  short.players[0].foot = []
+  short.discard = [buried, sevens[2]]
+  short.stock = []
+  short.teams[0].opened = false
+  short.handNumber = 1
+  setTurn(short, 0)
+  const blocked = discardInfo(short)
+  assert.equal(blocked.canTake, false)
+  assert.match(blocked.reason, /50/)
+  const refused = apply(short, { type: "take", groups: [[sevens[0].id, sevens[1].id]] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error, /50/)
+  assert.equal(short.teams[0].opened, false)
+  assert.equal(short.discard.at(-1).id, sevens[2].id)
+  assert.equal(short.players[0].hand.some((card) => card.id === buried.id), false)
+
+  const enough = houseDeal(1, 22)
+  const aces = extract(enough, (card) => card.rank === 1, 3)
+  const lows = extract(enough, (card) => card.rank === 4, 3)
+  const keep = extract(enough, (card) => card.rank === 9, 2)
+  scoop(enough)
+  enough.players[0].hand = [...aces.slice(0, 2), ...lows.slice(0, 2), ...keep]
+  enough.players[0].foot = []
+  enough.discard = [aces[2]]
+  enough.teams[0].opened = false
+  enough.handNumber = 1
+  setTurn(enough, 0)
+  assert.equal(discardInfo(enough).canTake, true)
+  const onlyLows = apply(enough, { type: "take", groups: [lows.slice(0, 2).map((card) => card.id)] })
+  assert.equal(onlyLows.ok, false)
+  assert.equal(enough.teams[0].opened, false)
+  act(enough, { type: "take", groups: [aces.slice(0, 2).map((card) => card.id)] })
+  assert.equal(enough.teams[0].opened, true)
+  assert.equal(enough.teams[0].melds[0].cards.length, 3)
+  assert.equal(enough.teams[0].melds[0].cards.reduce((sum, card) => sum + cardPoints(card), 0), 60)
+
+  const later = houseDeal(1, 23)
+  const laterAces = extract(later, (card) => card.rank === 1, 3)
+  const kings = extract(later, (card) => card.rank === 13, 3)
+  const hold = extract(later, (card) => card.rank === 9, 2)
+  scoop(later)
+  later.players[0].hand = [...laterAces.slice(0, 2), ...kings, ...hold]
+  later.players[0].foot = []
+  later.discard = [laterAces[2]]
+  later.teams[0].opened = false
+  later.handNumber = 2
+  setTurn(later, 0)
+  assert.equal(openingRequirement(0, later), 90)
+  assert.equal(discardInfo(later).canTake, true)
+  const acesOnly = apply(later, { type: "take", groups: [laterAces.slice(0, 2).map((card) => card.id)] })
+  assert.equal(acesOnly.ok, false)
+  assert.match(acesOnly.error, /90/)
+  assert.equal(later.teams[0].opened, false)
+  act(later, {
+    type: "take",
+    groups: [laterAces.slice(0, 2).map((card) => card.id), kings.map((card) => card.id)],
+  })
+  assert.equal(later.teams[0].opened, true)
+  assert.equal(later.teams[0].melds.length, 2)
+
+  const exact = houseDeal(1, 24)
+  const exactKings = extract(exact, (card) => card.rank === 13, 5)
+  const spare = [8, 9].map((rank) => extract(exact, (card) => card.rank === rank, 1)[0])
+  scoop(exact)
+  exact.players[0].hand = [...exactKings.slice(0, 4), ...spare]
+  exact.players[0].foot = []
+  exact.discard = [exactKings[4]]
+  exact.teams[0].opened = false
+  setTurn(exact, 0)
+  assert.equal(discardInfo(exact).canTake, true)
+  act(exact, { type: "take", groups: [exactKings.slice(0, 4).map((card) => card.id)] })
+  assert.equal(exact.teams[0].melds[0].cards.reduce((sum, card) => sum + cardPoints(card), 0), 50)
+
+  const lowScore = fresh(1, 31)
+  const fours = extract(lowScore, (card) => card.rank === 4, 3)
+  const fillers = [8, 9].map((rank) => extract(lowScore, (card) => card.rank === rank, 1)[0])
+  scoop(lowScore)
+  lowScore.players[0].hand = [fours[0], fours[1], ...fillers]
+  lowScore.discard = [fours[2]]
+  lowScore.teams[0].total = -100
+  lowScore.teams[0].opened = false
+  setTurn(lowScore, 0)
+  assert.equal(openingRequirement(lowScore.teams[0].total, lowScore), 15)
+  assert.equal(discardInfo(lowScore).canTake, true)
+  act(lowScore, { type: "take", groups: [[fours[0].id, fours[1].id]] })
+  assert.equal(lowScore.teams[0].opened, true)
+})
+
 test("AI finishes matches for every table size", () => {
   for (const opponents of [1, 2, 3]) {
     for (const seed of [1, 2, 3]) {
