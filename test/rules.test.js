@@ -863,6 +863,48 @@ test("a first meld that takes the discard still has to meet the opening count", 
   assert.equal(lowScore.teams[0].opened, true)
 })
 
+test("three wild cards can start a meld while a short natural meld could take them", () => {
+  const state = houseDeal(1, 12)
+  const twos = extract(state, (card) => card.rank === 2, 3)
+  const sixes = extract(state, (card) => card.rank === 6, 4)
+  const aces = extract(state, (card) => card.rank === 1, 5)
+  const jacks = extract(state, (card) => card.rank === 11, 5)
+  const rest = extract(state, (card) => card.rank === 12 || card.rank === 10 || card.rank === 8 || card.rank === 4, 5)
+  const foot = extract(state, (card) => card.rank >= 4, 13)
+  const blocker = extract(state, (card) => card.rank === 2 || card.rank === 0, 3)
+  scoop(state)
+  const player = state.players[0]
+  player.hand = [...twos, ...rest]
+  player.foot = foot
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: 1, cards: aces },
+    { rank: 11, cards: jacks },
+    { rank: 6, cards: sixes },
+    { rank: -1, cards: blocker },
+  ]
+  asMeld(state)
+  const refused = apply(state, { type: "meld", cardIds: twos.map((card) => card.id) })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error, /wild meld/)
+  state.teams[0].melds = state.teams[0].melds.filter((meld) => meld.rank >= 0)
+  const laid = structuredClone(state)
+  act(laid, { type: "layoff", cardIds: twos.map((card) => card.id), rank: 6 })
+  assert.equal(laid.teams[0].melds.find((meld) => meld.rank === 6).cards.length, 7)
+  assert.equal(laid.teams[0].melds.some((meld) => meld.rank < 0), false)
+  act(state, { type: "meld", cardIds: twos.map((card) => card.id) })
+  const wild = state.teams[0].melds.find((meld) => meld.rank < 0)
+  assert.equal(wild.cards.length, 3)
+  assert.deepEqual(
+    wild.cards.map((card) => card.id).sort(),
+    twos.map((card) => card.id).sort()
+  )
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 6).cards.length, 4)
+  assert.equal(player.hand.length, 5)
+  assert.equal(player.foot.length, 13)
+  assert.equal(state.phase, "meld")
+})
+
 test("a wild card can join an open wild meld while one card and the foot remain", () => {
   const state = houseDeal(1, 9)
   const wilds = extract(state, (card) => card.rank === 2 || card.rank === 0, 6)
