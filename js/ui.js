@@ -353,6 +353,8 @@ function handChoice(cards) {
     const check = meldCheck(cards)
     const adding = check.ok && !check.go && myTeam().opened && layoffRank(cards) != null
     const wildAdd = wildAddChoice(cards)
+    const freshWild = newWildMeldChoice(cards)
+    if (freshWild && adding) return { buttons: [freshWild, { act: "meld-btn", label: "Add" }] }
     if (wildAdd && !adding) return { buttons: [wildAdd] }
     const buttons = [
       {
@@ -419,6 +421,7 @@ function hint() {
       const aimed = layoffRank(cards)
       const wild = targets.some((meld) => meld.rank < 0)
       const natural = targets.some((meld) => meld.rank >= 0)
+      if (newWildMeldChoice(cards) && natural) return "Meld the wild cards, or add them to the highlighted meld."
       if (wild && natural && (aimed == null || aimed >= 0)) {
         return "Add to the wild meld, or tap Add on another highlighted meld."
       }
@@ -480,6 +483,18 @@ function wildAddChoice(cards) {
   const wildTarget = eligibleWildMelds(cards).find((meld) => meld.rank < 0)
   if (!wildTarget) return null
   return { act: "add-wild", label: "Add to wilds", primary: aimed == null, rank: wildTarget.rank }
+}
+
+function newWildMeldChoice(cards) {
+  if (!myTurn() || match.phase !== "meld" || ui.staged.length) return null
+  if (match.rules !== "house" || !myTeam().opened) return null
+  if (cards.length < 3 || !cards.every(isWild)) return null
+  if (myTeam().melds.some((meld) => meld.rank < 0 && meld.cards.length < 7)) return null
+  if (!describeMeld(cards, false, true).ok) return null
+  const left = myHand().length - cards.length
+  const after = myTeam().melds.concat([{ rank: -1, cards }])
+  if (!placementAllowed(match, 0, left, after)) return null
+  return { act: "wild-meld", label: "Meld", primary: true }
 }
 
 function layoffRank(cards) {
@@ -1184,6 +1199,16 @@ function meldSelected() {
   doAction({ type: "meld", cardIds: cards.map((card) => card.id) })
 }
 
+function meldWilds() {
+  const cards = selectedCards()
+  if (!newWildMeldChoice(cards)) {
+    ui.error = "Those wild cards cannot start a meld."
+    render()
+    return
+  }
+  doAction({ type: "meld", cardIds: cards.map((card) => card.id) })
+}
+
 function discardSelected() {
   if (ui.staged.length) {
     ui.error = "Open those melds, or clear them, before discarding."
@@ -1348,6 +1373,7 @@ function onClick(event) {
     return
   }
   if (act === "meld-btn") return meldSelected()
+  if (act === "wild-meld") return meldWilds()
   if (act === "discard-btn") return discardSelected()
   if (act === "go") return goOut()
   if (act === "undo") return doAction({ type: "undo" })
