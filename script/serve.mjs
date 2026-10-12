@@ -5,7 +5,7 @@ import { extname, join, normalize, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { versionSource } from "./version.mjs"
 
-const root = fileURLToPath(new URL("..", import.meta.url))
+const root = fileURLToPath(new URL("..", import.meta.url)).replace(new RegExp(`${sep === "\\" ? "\\\\" : sep}$`), "") || sep
 const types = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",

@@ -41,6 +41,9 @@ test("serving the site stamps the latest commit", async () => {
   const port = 8123
   const server = startServer(port)
   try {
+    const page = await fetch(`http://127.0.0.1:${port}/`)
+    assert.equal(page.status, 200)
+    assert.match(await page.text(), /js\/ui\.js/)
     const response = await fetch(`http://127.0.0.1:${port}/js/version.js`)
     assert.equal(response.status, 200)
     const text = await response.text()
