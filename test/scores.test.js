@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { playingName, rankTotals, readName, readScores, recordScore, writeName } from "../js/scores.js"
+import { finishedWhen, playingName, rankTotals, readName, readScores, recordScore, writeName } from "../js/scores.js"
 
 function memory() {
   const data = new Map()
@@ -32,6 +32,18 @@ test("only the top ten finished scores are kept", () => {
   assert.equal(scores[9].score, 3)
   assert.equal(scores.some((entry) => entry.score === 1), false)
   assert.equal(scores[0].rules, "house")
+})
+
+test("a finished score keeps the date and time", () => {
+  const storage = memory()
+  const when = "2026-10-12T06:50:00.000Z"
+  recordScore(storage, { name: "Ada", score: 1200, rules: "house", opponents: 1, when })
+  recordScore(storage, { name: "You", score: 400, rules: "classic", opponents: 3, when: "" })
+  const scores = readScores(storage)
+  assert.equal(scores[0].when, when)
+  assert.equal(finishedWhen(scores[0].when), "2026-10-12 06:50 UTC")
+  assert.equal(finishedWhen(scores[1].when), "")
+  assert.equal(finishedWhen("not-a-date"), "")
 })
 
 test("standings rank ties and mark every winner", () => {

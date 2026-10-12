@@ -34,6 +34,13 @@ function cleanScore(entry) {
   return { name, score: entry.score, rules, opponents, when }
 }
 
+export function finishedWhen(value) {
+  if (!value) return ""
+  const when = new Date(value)
+  if (Number.isNaN(when.getTime())) return ""
+  return `${when.toISOString().slice(0, 16).replace("T", " ")} UTC`
+}
+
 export function readScores(storage) {
   try {
     const parsed = JSON.parse(storage.getItem(SCORE_KEY) || "[]")

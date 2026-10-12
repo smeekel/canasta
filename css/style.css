@@ -142,7 +142,8 @@ h1 { font-size: clamp(3rem, 10vw, 4.4rem); line-height: 0.9; margin: 0; font-wei
   border-top: 1px solid var(--line);
 }
 .top-scores .who { min-width: 0; }
-.top-scores .meta { display: block; font-size: 0.75rem; opacity: 0.7; }
+.top-scores .meta, .top-scores time { display: block; font-size: 0.75rem; opacity: 0.7; }
+.top-scores time { font-variant-numeric: tabular-nums; }
 .top-scores b { font-variant-numeric: tabular-nums; }
 .rank-num { text-align: center; font-size: 0.85rem; opacity: 0.75; }
 .medal { width: 26px; height: 32px; display: block; }
