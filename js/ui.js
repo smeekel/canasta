@@ -21,7 +21,7 @@ import {
   sortHand,
   suitSymbol,
 } from "./engine.js"
-import { NAME_LIMIT, playingName, rankTotals, readName, readScores, recordScore, writeName } from "./scores.js"
+import { NAME_LIMIT, finishedWhen, playingName, rankTotals, readName, readScores, recordScore, writeName } from "./scores.js"
 import { built, repository, revision } from "./version.js"
 
 const app = document.querySelector("#app")
@@ -653,13 +653,19 @@ function scoreMeta(entry) {
   return `${rules} · ${count === 1 ? "1 opponent" : `${count} opponents`}`
 }
 
+function scoreWhen(entry) {
+  const label = finishedWhen(entry.when)
+  if (!label) return ""
+  return `<time datetime="${esc(entry.when)}">${esc(label)}</time>`
+}
+
 function topScoresHtml() {
   const scores = readScores(localStorage)
   const rows = scores.length
     ? `<ol>${scores
         .map(
           (entry, index) =>
-            `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span></span><b>${entry.score}</b></li>`
+            `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span>${scoreWhen(entry)}</span><b>${entry.score}</b></li>`
         )
         .join("")}</ol>`
     : `<p class="empty-note">Finish a match to post a score.</p>`
