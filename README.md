@@ -8,10 +8,12 @@ House rules is the option selected when the page opens. It is four hands, everyo
 
 Cards travel between the stock, the hand, the foot, the melds, and the discard pile. The speed control on the lobby and the table changes how fast those moves play.
 
-Serve this folder from any static host:
+Serve this folder:
 
 ```bash
-python3 -m http.server 8080
+node script/serve.mjs
 ```
 
-Then open the site. `file://` will not load the modules.
+The server reads the latest commit and shows that check-in on the page. Open the address it prints. `file://` will not load the modules.
+
+To publish these files from a static host, run `node script/version.mjs` first. That writes the same commit into `js/version.js`. A push to main does this on GitHub and saves the stamp. A commit cannot contain its own hash, so the saved stamp names the commit just pushed.
