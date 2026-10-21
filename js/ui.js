@@ -502,6 +502,7 @@ function hint() {
     if (match.mayDecline) return "The stock is empty. Take the discard, or end the hand."
     const info = discardInfo(match, 0)
     const draw = match.rules === "house" ? "Draw two cards from the stock" : "Draw from the stock"
+    if (info.canTake && info.mode === "extend") return `${draw}, or add that discard to your meld with at least two matching cards.`
     return info.canTake ? `${draw}, or take the discard pile.` : `${draw}. ${info.reason}`
   }
   const team = myTeam()
