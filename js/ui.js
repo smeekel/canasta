@@ -824,7 +824,7 @@ function aboutHtml() {
   return `<div class="overlay"><section class="sheet" role="dialog" aria-labelledby="about-title">
     <h2 id="about-title">About</h2>
     <p>Canasta in the browser. This build is check-in <a href="${commit}" target="_blank" rel="noopener noreferrer">${esc(revision)}</a>, stamped <time datetime="${esc(built)}">${esc(versionWhen())}</time>.</p>
-    <p>The check-in is the commit this page was built from. The time is when that stamp was written.</p>
+    <p>The check-in is the commit this page was built from. The time is when that commit was made.</p>
     <p><a href="${repository}" target="_blank" rel="noopener noreferrer">Source on GitHub</a></p>
     <div class="actions">${match ? titleButton() : ""}<button type="button" class="primary" data-act="close">Close</button></div>
   </section></div>`
