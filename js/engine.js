@@ -4,8 +4,10 @@
  *
  * House rules are four hands, everyone alone. The pack is (players + 1) decks.
  * Each player has a hand and a foot of 13 and draws two cards. The opening count
- * is 50, then 90, then 120, then 150. The discard pile can be taken only when
- * its top card starts a new meld. A finished canasta is frozen, and another
+ * is 50, then 90, then 120, then 150. The discard pile can be taken when its
+ * top card starts a new meld, or when it matches an unfinished meld and the
+ * hand has at least two cards of that rank to add. A wild card can be included.
+ * The meld cannot grow past 7. A finished canasta is frozen, and another
  * meld of that rank can be started once it is complete. Going out takes a pure canasta,
  * a mixed canasta, and a wild canasta, then an empty hand and foot.
  *
@@ -445,7 +447,18 @@ export function discardInfo(state, playerIndex = state.turn) {
   const wilds = player.hand.filter(isWild)
   const existing = openMeld(team.melds, top.rank)
   if (isHouse(state) && existing) {
-    info.reason = "That card matches a meld you already have. Take a discard only when it starts a new meld."
+    const rankName = RANK_NAME[top.rank].toLowerCase()
+    const room = 7 - existing.cards.length - 1
+    if (naturals.length >= 2 && room >= 2) {
+      info.canTake = true
+      info.mode = "extend"
+      info.reason = `Add at least two ${rankName}s from your hand. A wild card can be included if the meld stays at 7.`
+      return info
+    }
+    info.reason =
+      naturals.length < 2
+        ? `That card matches a meld you already have. You need two ${rankName}s in your hand to take it.`
+        : "Those cards would make the meld longer than 7."
     return info
   }
   if (existing && frozen && existing.cards.length + 3 > 7) {
@@ -659,7 +672,7 @@ export function createMatch({ opponents = 3, seed = 1, rules = "classic" } = {})
   const playerCount = opponents + 1
   if (playerCount < 2 || playerCount > 4) throw new Error("Choose 1, 2, or 3 AI opponents.")
   const names =
-    playerCount === 2 ? ["You", "Mina"] : playerCount === 3 ? ["You", "Mina", "Ellis"] : ["You", "Mina", "Ellis", "Noah"]
+    playerCount === 2 ? ["Anonymous", "Mina"] : playerCount === 3 ? ["Anonymous", "Mina", "Ellis"] : ["Anonymous", "Mina", "Ellis", "Noah"]
   const players = names.map((name, index) => ({
     name,
     isHuman: index === 0,
@@ -846,6 +859,12 @@ function commitGroupedTake(state, groups) {
   if (match.some((card) => isNatural(card) && card.rank !== top.rank)) {
     return fail("Each meld can contain only one rank.")
   }
+  if (info.mode === "extend") {
+    if (matchNaturals.length < 2) return fail("You need two matching cards from your hand.")
+    if (match.some((card) => !(isWild(card) || (isNatural(card) && card.rank === top.rank)))) {
+      return fail("Only matching cards and wild cards can join that meld.")
+    }
+  }
   if (info.frozen && matchNaturals.length < 2) return fail("A frozen pile needs two natural cards from your hand.")
   if (!info.frozen && matchNaturals.length < 2 && !match.some(isWild)) {
     return fail("Use two natural cards, or one natural card and a wild card.")
@@ -922,6 +941,7 @@ function take(state, groups = []) {
   const team = teamOf(state)
   if (info.mode === "layoff" && !groups.length) return commitLayoffTake(state)
   if (info.mode === "layoff" && groups.length) return fail("Take the pile first. You can meld other cards afterward.")
+  if (info.mode === "extend" && groups.length !== 1) return fail("Add the matching cards from your hand.")
   if (team.opened && groups.length !== 1) return fail("Choose the one meld that uses the discard.")
   return commitGroupedTake(state, groups)
 }

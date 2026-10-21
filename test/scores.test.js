@@ -13,7 +13,8 @@ function memory() {
 test("a name is optional and comes back from storage", () => {
   const storage = memory()
   assert.equal(readName(storage), "")
-  assert.equal(playingName("  "), "You")
+  assert.equal(playingName("  "), "Anonymous")
+  assert.equal(playingName(""), "Anonymous")
   assert.equal(playingName(" Ada "), "Ada")
   writeName(storage, "Ada")
   assert.equal(readName(storage), "Ada")

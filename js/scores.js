@@ -22,13 +22,13 @@ export function writeName(storage, value) {
 
 export function playingName(value) {
   const name = String(value ?? "").trim().slice(0, NAME_LIMIT)
-  return name || "You"
+  return name || "Anonymous"
 }
 
 export function normalizeScore(entry) {
   const score = Number(entry?.score)
   if (!entry || !Number.isFinite(score) || Math.abs(score) > 1000000) return null
-  const name = String(entry.name || "You").trim().slice(0, NAME_LIMIT) || "You"
+  const name = String(entry.name || "Anonymous").trim().slice(0, NAME_LIMIT) || "Anonymous"
   const rules = entry.rules === "classic" ? "classic" : "house"
   const opponents = Math.min(3, Math.max(1, Number(entry.opponents) || 1))
   const when = typeof entry.when === "string" ? entry.when : ""
