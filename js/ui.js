@@ -153,11 +153,12 @@ function meldKind(meld) {
   return "Pure canasta"
 }
 
-function meldView(meld, mine, pick) {
+function meldView(meld, mine, pick, extending = false) {
   const canasta = meld.cards.length >= 7 && meld.rank !== 3
   const mixed = canasta && meld.rank >= 0 && meld.cards.some(isWild)
   const wild = canasta && meld.rank < 0
-  const classes = ["meld", canasta ? "canasta" : "", mixed ? "mixed" : "", wild ? "wild" : "", mine && ui.focusRank === meld.rank ? "on" : "", pick ? "pick" : ""]
+  const focused = (mine && ui.focusRank === meld.rank) || extending
+  const classes = ["meld", canasta ? "canasta" : "", mixed ? "mixed" : "", wild ? "wild" : "", focused ? "on" : "", pick ? "pick" : ""]
     .filter(Boolean)
     .join(" ")
   const kind = meldKind(meld)
@@ -184,8 +185,9 @@ function seatView(index) {
 
 function meldZone(title, melds, reds, mine, anchor) {
   const picks = mine ? new Set(eligibleWildMelds(selectedCards()).map((meld) => meld.rank)) : new Set()
+  const extendRank = mine && ui.taking && discardInfo(match, 0).mode === "extend" ? match.discard.at(-1)?.rank : null
   const body = melds.length
-    ? `<div class="melds">${melds.map((meld) => meldView(meld, mine, picks.has(meld.rank))).join("")}</div>`
+    ? `<div class="melds">${melds.map((meld) => meldView(meld, mine, picks.has(meld.rank), extendRank === meld.rank && meld.cards.length < 7)).join("")}</div>`
     : `<p class="empty-note">No melds yet</p>`
   return `<section class="zone" data-anchor="${anchor}"><div class="meld-head"><span>${esc(title)}</span>${redMarks(reds)}</div>${body}</section>`
 }
@@ -236,10 +238,41 @@ function stagedPreview() {
           "pop-inline"
         )
       : ""
-  return `<div class="stage"><div class="meld-head"><span>${ui.taking ? "Taking the discard" : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then meld.</p>"}</div>${open}</div>`
+  const takingTitle = discardInfo(match, 0).mode === "extend" ? "Adding to the meld" : "Taking the discard"
+  return `<div class="stage"><div class="meld-head"><span>${ui.taking ? takingTitle : "Opening meld"}${note}</span></div><div class="stage-row">${groups || "<p class=\"empty-note\">Select cards, then meld.</p>"}</div>${open}</div>`
+}
+
+function extendMeld() {
+  if (!match || !ui.taking) return null
+  const info = discardInfo(match, 0)
+  if (info.mode !== "extend" || !info.top) return null
+  const meld = myTeam().melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
+  return meld ? { info, meld } : null
+}
+
+function extendCheck(cards) {
+  const found = extendMeld()
+  if (!found) return { ok: false, error: "That discard cannot be added to a meld." }
+  const top = found.info.top
+  const played = cards.filter((card) => isNatural(card) && card.rank === top.rank)
+  if (played.length < 2) return { ok: false, error: "You need two matching cards from your hand. A wild card can be included too." }
+  if (cards.some((card) => !isWild(card) && !(isNatural(card) && card.rank === top.rank))) {
+    return { ok: false, error: "Only matching cards and wild cards can join that meld." }
+  }
+  if (found.meld.cards.length + cards.length + 1 > 7) return { ok: false, error: "A canasta stops at 7 cards." }
+  const parsed = describeMeld([...found.meld.cards, ...cards, top], false, true)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+  return { ok: true, error: "" }
 }
 
 function takeReady() {
+  const extending = extendMeld()
+  if (extending) {
+    if (ui.staged.length !== 1) return { ok: false, reason: "Select at least two matching cards from your hand." }
+    const cards = ui.staged[0].map((id) => myHand().find((card) => card.id === id)).filter(Boolean)
+    const check = extendCheck(cards)
+    return check.ok ? { ok: true, reason: "" } : { ok: false, reason: check.error }
+  }
   if (!ui.staged.length) return { ok: false, reason: "Add a meld that uses the discard." }
   const top = match.discard.at(-1)
   const usesTop = ui.staged.some((ids) =>
@@ -309,6 +342,7 @@ function pop(html, extra = "") {
 }
 
 function stageCheck(cards) {
+  if (ui.taking && discardInfo(match, 0).mode === "extend") return extendCheck(cards)
   const top = ui.taking ? match.discard.at(-1) : null
   const matches = !!(top && cards.some((card) => isNatural(card) && card.rank === top.rank))
   const parsed = describeMeld(matches ? [...cards, top] : cards, false, match.rules === "house")
@@ -408,7 +442,11 @@ function piles() {
         popButton("cancel-take", "Cancel")
     )
   } else if (myTurn() && match.phase === "draw" && info.canTake) {
-    discardPop = pop(popButton("pile", info.mode === "layoff" ? "Take discard" : "Take with cards", { primary: declining }))
+    discardPop = pop(
+      popButton("pile", info.mode === "layoff" ? "Take discard" : info.mode === "extend" ? "Add to meld" : "Take with cards", {
+        primary: declining,
+      })
+    )
   }
   return `<div class="piles">
     <div class="pile-slot stock"><button type="button" class="pile${drawing ? " ready" : ""}" data-act="stock" data-anchor="stock" ${stockOff}><span class="stack"><span class="card back"></span></span><span class="pile-meta"><b>${match.stock.length}</b>Stock</span></button>${stockPop}</div>
@@ -448,6 +486,11 @@ function hint() {
     }
   }
   if (ui.taking) {
+    if (discardInfo(match, 0).mode === "extend") {
+      const cards = selectedCards()
+      if (cards.length > 1 && extendCheck(cards).ok) return "Take the pile. Those cards join the meld."
+      return "Select at least two matching cards. A wild card can be included if the meld stays at 7."
+    }
     if (!myTeam().opened && ui.staged.length) {
       const need = openingRequirement(myTeam().total, match)
       const points = stagedPoints(false)
@@ -539,7 +582,7 @@ function rulesHtml() {
       <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). A finished canasta is frozen. You may start another of the same rank only after it is complete, so one unfinished meld of each rank is open at a time.</li>
       <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
       <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth.</li>
-      <li>You may take the discard pile only when the top card starts a new meld. A card that matches an unfinished meld stays there. Once that canasta is complete, the same rank can start another meld. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
+      <li>You may take the discard pile when the top card starts a new meld. You may also take it when the top card matches an unfinished meld, if your hand has at least two cards of that rank to add. A wild card can be included. The meld, the discard, and those cards must fit in 7. A finished canasta stays frozen, and that rank can start another meld once it is complete. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
     : `<p>A match is four hands. The highest score at the end wins. This is classic Canasta: two decks plus four jokers. Jokers and twos are wild. You meld sets, never sequences.</p>
     <ul>
@@ -690,7 +733,7 @@ function topScoresHtml() {
 }
 
 function nameField() {
-  return `<label class="player-name"><span>Your name</span><input type="text" maxlength="${NAME_LIMIT}" placeholder="Optional" value="${esc(ui.name)}" data-act="name" autocomplete="nickname" aria-label="Your name, optional"></label>`
+  return `<label class="player-name"><span>Your name</span><input type="text" maxlength="${NAME_LIMIT}" placeholder="Anonymous" value="${esc(ui.name)}" data-act="name" autocomplete="nickname" aria-label="Your name. Leave blank to play as Anonymous."></label>`
 }
 
 function lobbyHtml() {
@@ -1093,7 +1136,7 @@ function rememberScore() {
   const you = match.players.find((player) => player.isHuman)
   if (!you) return
   const entry = {
-    name: you.name || "You",
+    name: playingName(you.name),
     score: match.teams[you.team].total,
     rules: match.rules,
     opponents: match.playerCount - 1,
@@ -1172,6 +1215,19 @@ async function doAction(action) {
 
 function stageSelection() {
   const cards = selectedCards()
+  if (ui.taking && discardInfo(match, 0).mode === "extend") {
+    const check = extendCheck(cards)
+    if (!check.ok) {
+      ui.error = check.error
+      render()
+      return
+    }
+    ui.staged = [cards.map((card) => card.id)]
+    ui.selected.clear()
+    ui.error = ""
+    render()
+    return
+  }
   const top = ui.taking ? match.discard.at(-1) : null
   const matches = !!(top && cards.some((card) => isNatural(card) && card.rank === top.rank))
   const parsed = describeMeld(matches ? [...cards, top] : cards, false, match.rules === "house")
@@ -1283,8 +1339,7 @@ async function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>
   const field = document.querySelector("[data-act=name]")
   if (field) ui.name = writeName(localStorage, field.value.slice(0, NAME_LIMIT))
   match = createMatch({ opponents: ui.opponents, seed, rules: ui.rules })
-  const named = playingName(ui.name)
-  if (named !== "You") match.players[0].name = named
+  match.players[0].name = playingName(ui.name)
   ui.screen = "table"
   ui.modal = null
   ui.error = ""

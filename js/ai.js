@@ -12,6 +12,7 @@ import {
   isWild,
   meetsGoOut,
   openingRequirement,
+  placementAllowed,
   WILD_RANK,
 } from "./engine.js"
 
@@ -163,12 +164,46 @@ function pairGroup(state, info) {
   return null
 }
 
+function worthExtend(state, info) {
+  const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
+  if (!meld) return false
+  if (meld.cards.length + 3 >= 7) return true
+  return state.discard.length >= 3
+}
+
+function extendGroup(state, info) {
+  const hand = seat(state).hand
+  const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
+  if (!meld || meld.cards.length + 3 > 7) return null
+  const naturals = hand.filter((card) => card.rank === info.top.rank)
+  if (naturals.length < 2) return null
+  let chosen = naturals.slice(0, 2)
+  const wild = hand.find(isWild)
+  const wildsInMeld = meld.cards.filter(isWild).length
+  if (wild && wildsInMeld < 3 && meld.cards.length + chosen.length + 2 === 7) chosen = chosen.concat(wild)
+  const merged = [...meld.cards, info.top, ...chosen]
+  if (!describeMeld(merged, false, true).ok) return null
+  const rest = state.discard.slice(0, -1).filter((card) => !isRedThree(card)).length
+  const left = hand.length - chosen.length + rest
+  const after = side(state).melds.map((item) =>
+    item === meld ? { rank: item.rank, cards: merged } : { rank: item.rank, cards: item.cards }
+  )
+  if (!placementAllowed(state, state.turn, left, after)) return null
+  return [chosen.map((card) => card.id)]
+}
+
 function takeAction(state) {
   const info = discardInfo(state)
   if (!info.canTake) return null
   if (info.mode === "layoff") {
     if (!state.mustTake && !worthLayoff(state, info)) return null
     return { type: "take", groups: [] }
+  }
+  if (info.mode === "extend") {
+    if (!state.mustTake && !worthExtend(state, info)) return null
+    const groups = extendGroup(state, info)
+    if (!groups) return null
+    return { type: "take", groups }
   }
   if (!side(state).opened) {
     const plan = openingPlan(state, info)

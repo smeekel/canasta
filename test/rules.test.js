@@ -108,10 +108,13 @@ test("deal sizes, red threes, and a legal upcard", () => {
   }
 })
 
-test("a saved name replaces You on the scoreboard", () => {
+test("a saved name replaces Anonymous on the scoreboard", () => {
   const state = fresh(3, 6)
-  assert.equal(sideName(state, 0), "Your side")
+  assert.equal(state.players[0].name, "Anonymous")
+  assert.equal(sideName(state, 0), "Anonymous & Ellis")
   assert.equal(sideName(state, 1), "Mina & Noah")
+  state.players[0].name = "You"
+  assert.equal(sideName(state, 0), "Your side")
   state.players[0].name = "Ada"
   assert.equal(sideName(state, 0), "Ada & Ellis")
   const solo = fresh(1, 7)
@@ -440,43 +443,118 @@ test("house rules deal a larger pack and a foot, with no partnerships", () => {
   }
 })
 
-test("house rules take a discard only to start a new meld", () => {
+test("house rules can add a discard to a meld when two matching cards fit", () => {
   const state = houseDeal(1, 4)
   setTurn(state, 0)
-  const kings = extract(state, (card) => card.rank === 13, 6)
-  const queens = extract(state, (card) => card.rank === 12, 3)
-  const joker = extract(state, (card) => card.rank === 0, 1)[0]
-  const rest = scoop(state).filter((card) => !isRedThree(card) && !isWild(card))
+  const sevens = extract(state, (card) => card.rank === 7, 14)
+  const wild = extract(state, (card) => card.rank === 2, 2)
+  const filler = extract(state, (card) => card.rank === 4, 4)
+  scoop(state)
   state.teams[0].opened = true
-  state.teams[0].melds = [{ rank: 13, cards: kings.slice(0, 3) }]
-  state.players[0].hand = [kings[3], kings[4], queens[0], queens[1], joker, ...rest.slice(0, 4)]
   state.players[0].foot = []
-  state.discard = [kings[5]]
-  state.stock = rest.slice(4)
+  state.stock = filler.slice(2)
 
-  const blocked = discardInfo(state)
-  assert.equal(blocked.canTake, false)
-  assert.equal(blocked.mustTake, false)
-  assert.match(blocked.reason, /new meld/)
-  const taken = apply(state, { type: "take", groups: [] })
-  assert.equal(taken.ok, false)
-  const paired = apply(state, { type: "take", groups: [[kings[3].id, kings[4].id]] })
-  assert.equal(paired.ok, false)
+  state.teams[0].melds = [{ rank: 7, cards: sevens.slice(0, 3) }]
+  state.players[0].hand = [sevens[3], sevens[4], wild[0], filler[0], filler[1]]
+  state.discard = [sevens[5]]
+  const allowed = discardInfo(state)
+  assert.equal(allowed.canTake, true)
+  assert.equal(allowed.mode, "extend")
+  assert.equal(allowed.mustTake, false)
+
+  const wildForNatural = apply(state, { type: "take", groups: [[sevens[3].id, wild[0].id]] })
+  assert.equal(wildForNatural.ok, false)
+  assert.match(wildForNatural.error, /two matching/)
+  const emptyTake = apply(state, { type: "take", groups: [] })
+  assert.equal(emptyTake.ok, false)
   assert.equal(state.teams[0].melds[0].cards.length, 3)
-  assert.equal(state.discard.at(-1).id, kings[5].id)
+  assert.equal(state.discard.at(-1).id, sevens[5].id)
 
-  state.stock = []
-  assert.equal(discardInfo(state).canTake, false)
-  assert.equal(discardInfo(state).mustTake, false)
+  act(state, { type: "take", groups: [[sevens[3].id, sevens[4].id]] })
+  assert.equal(state.teams[0].melds[0].cards.length, 6)
+  assert.equal(state.teams[0].melds[0].cards.some(isWild), false)
+  assert.equal(state.players[0].hand.some((card) => card.id === wild[0].id), true)
 
-  state.stock = rest.slice(4)
-  state.discard = [queens[2]]
-  const fresh = discardInfo(state)
-  assert.equal(fresh.canTake, true)
-  assert.equal(fresh.mode, "pair")
-  act(state, { type: "take", groups: [[queens[0].id, queens[1].id]] })
-  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 3)
-  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 13).cards.length, 3)
+  state.phase = "draw"
+  state.turn = 0
+  state.turnState = null
+  state.teams[0].melds = [{ rank: 7, cards: sevens.slice(6, 9) }]
+  state.players[0].hand = [sevens[9], sevens[10], wild[1], filler[0], filler[1]]
+  state.discard = [sevens[11]]
+  state.stock = filler.slice(2)
+  act(state, { type: "take", groups: [[sevens[9].id, sevens[10].id, wild[1].id]] })
+  const withWild = state.teams[0].melds.find((meld) => meld.rank === 7)
+  assert.equal(withWild.cards.length, 7)
+  assert.equal(withWild.cards.filter(isWild).length, 1)
+
+  const crowded = houseDeal(1, 8)
+  setTurn(crowded, 0)
+  const many = extract(crowded, (card) => card.rank === 7, 10)
+  const spare = extract(crowded, (card) => card.rank === 9, 3)
+  scoop(crowded)
+  crowded.teams[0].opened = true
+  crowded.players[0].foot = []
+  crowded.teams[0].melds = [{ rank: 7, cards: many.slice(0, 5) }]
+  crowded.players[0].hand = [many[5], many[6], spare[0], spare[1], spare[2]]
+  crowded.discard = [many[7]]
+  crowded.stock = []
+  const tooLong = discardInfo(crowded)
+  assert.equal(tooLong.canTake, false)
+  assert.match(tooLong.reason, /longer than 7/)
+  const refused = apply(crowded, { type: "take", groups: [[many[5].id, many[6].id]] })
+  assert.equal(refused.ok, false)
+  assert.equal(crowded.teams[0].melds[0].cards.length, 5)
+
+  const short = houseDeal(1, 9)
+  setTurn(short, 0)
+  const few = extract(short, (card) => card.rank === 7, 6)
+  const other = extract(short, (card) => card.rank === 8, 4)
+  const queens = extract(short, (card) => card.rank === 12, 3)
+  scoop(short)
+  short.teams[0].opened = true
+  short.players[0].foot = []
+  short.teams[0].melds = [{ rank: 7, cards: few.slice(0, 3) }]
+  short.players[0].hand = [few[3], other[0], other[1], other[2]]
+  short.discard = [few[4]]
+  short.stock = [other[3]]
+  const oneCard = discardInfo(short)
+  assert.equal(oneCard.canTake, false)
+  assert.match(oneCard.reason, /two sevens/)
+  assert.equal(apply(short, { type: "take", groups: [[few[3].id, other[0].id]] }).ok, false)
+
+  const choice = houseDeal(1, 11)
+  setTurn(choice, 0)
+  const pick = extract(choice, (card) => card.rank === 7, 8)
+  const restCards = extract(choice, (card) => card.rank === 5, 2)
+  const extraWild = extract(choice, (card) => card.rank === 2, 1)
+  scoop(choice)
+  choice.teams[0].opened = true
+  choice.players[0].foot = []
+  choice.teams[0].melds = [{ rank: 7, cards: pick.slice(0, 4) }]
+  choice.players[0].hand = [pick[4], pick[5], pick[6], extraWild[0], restCards[0]]
+  choice.discard = [pick[7]]
+  choice.stock = [restCards[1]]
+  assert.equal(discardInfo(choice).canTake, true)
+  const tooMany = apply(choice, { type: "take", groups: [[pick[4].id, pick[5].id, pick[6].id]] })
+  assert.equal(tooMany.ok, false)
+  assert.match(tooMany.error, /7/)
+  const wildOverflow = apply(choice, { type: "take", groups: [[pick[4].id, pick[5].id, extraWild[0].id]] })
+  assert.equal(wildOverflow.ok, false)
+  assert.match(wildOverflow.error, /7/)
+  act(choice, { type: "take", groups: [[pick[4].id, pick[5].id]] })
+  assert.equal(choice.teams[0].melds[0].cards.length, 7)
+  assert.equal(choice.players[0].hand.some((card) => card.id === pick[6].id), true)
+  assert.equal(choice.players[0].hand.some((card) => card.id === extraWild[0].id), true)
+
+  short.players[0].hand = [few[3], few[5], queens[0], queens[1], other[0]]
+  short.discard = [queens[2]]
+  short.teams[0].melds = [{ rank: 7, cards: few.slice(0, 3) }]
+  const freshRank = discardInfo(short)
+  assert.equal(freshRank.canTake, true)
+  assert.equal(freshRank.mode, "pair")
+  act(short, { type: "take", groups: [[queens[0].id, queens[1].id]] })
+  assert.equal(short.teams[0].melds.find((meld) => meld.rank === 12).cards.length, 3)
+  assert.equal(short.teams[0].melds.find((meld) => meld.rank === 7).cards.length, 3)
 })
 
 test("a house hand ends when the stock is used up", () => {
