@@ -25,13 +25,14 @@ export function playingName(value) {
   return name || "You"
 }
 
-function cleanScore(entry) {
-  if (!entry || typeof entry.score !== "number" || !Number.isFinite(entry.score)) return null
+export function normalizeScore(entry) {
+  const score = Number(entry?.score)
+  if (!entry || !Number.isFinite(score) || Math.abs(score) > 1000000) return null
   const name = String(entry.name || "You").trim().slice(0, NAME_LIMIT) || "You"
   const rules = entry.rules === "classic" ? "classic" : "house"
   const opponents = Math.min(3, Math.max(1, Number(entry.opponents) || 1))
   const when = typeof entry.when === "string" ? entry.when : ""
-  return { name, score: entry.score, rules, opponents, when }
+  return { name, score, rules, opponents, when }
 }
 
 export function finishedWhen(value) {
@@ -45,14 +46,91 @@ export function readScores(storage) {
   try {
     const parsed = JSON.parse(storage.getItem(SCORE_KEY) || "[]")
     if (!Array.isArray(parsed)) return []
-    return parsed.map(cleanScore).filter(Boolean).slice(0, 10)
+    return parsed.map(normalizeScore).filter(Boolean).slice(0, 10)
   } catch {
     return []
   }
 }
 
+export const MIGRATED_KEY = "canasta-scores-migrated"
+const OUTBOX_KEY = "canasta-score-outbox"
+
+export function readOutbox(storage) {
+  try {
+    const parsed = JSON.parse(storage.getItem(OUTBOX_KEY) || "[]")
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(normalizeScore).filter(Boolean).slice(0, 20)
+  } catch {
+    return []
+  }
+}
+
+function writeOutbox(storage, scores) {
+  try {
+    storage.setItem(OUTBOX_KEY, JSON.stringify(scores.slice(0, 20)))
+  } catch {
+    /* the server copy is the one that counts */
+  }
+}
+
+export async function postScore(entry) {
+  const response = await fetch("/api/scores", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(entry),
+  })
+  if (!response.ok) throw new Error("The score was not saved.")
+  return response.json()
+}
+
+export async function fetchScores() {
+  const response = await fetch("/api/scores", { cache: "no-store" })
+  if (!response.ok) throw new Error("Scores could not be loaded.")
+  const body = await response.json()
+  return Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
+}
+
+export async function migrateStoredScores(storage) {
+  try {
+    if (storage.getItem(MIGRATED_KEY) === "1") return
+  } catch {
+    return
+  }
+  const response = await fetch("/api/scores/migrate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: readName(storage), scores: readScores(storage) }),
+  })
+  if (!response.ok) throw new Error("Saved scores could not be sent.")
+  try {
+    storage.setItem(MIGRATED_KEY, "1")
+  } catch {
+    /* a later load will try again */
+  }
+}
+
+export async function flushOutbox(storage) {
+  const pending = readOutbox(storage)
+  if (!pending.length) return
+  const left = []
+  for (const entry of pending) {
+    try {
+      await postScore(entry)
+    } catch {
+      left.push(entry)
+    }
+  }
+  writeOutbox(storage, left)
+}
+
+export function queueScore(storage, entry) {
+  const next = normalizeScore(entry)
+  if (!next) return
+  writeOutbox(storage, [...readOutbox(storage), next])
+}
+
 export function recordScore(storage, entry) {
-  const next = cleanScore(entry)
+  const next = normalizeScore(entry)
   if (!next) return readScores(storage)
   const scores = readScores(storage)
   scores.push(next)

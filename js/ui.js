@@ -21,7 +21,20 @@ import {
   sortHand,
   suitSymbol,
 } from "./engine.js"
-import { NAME_LIMIT, finishedWhen, playingName, rankTotals, readName, readScores, recordScore, writeName } from "./scores.js"
+import {
+  NAME_LIMIT,
+  fetchScores,
+  finishedWhen,
+  flushOutbox,
+  migrateStoredScores,
+  playingName,
+  postScore,
+  queueScore,
+  rankTotals,
+  readName,
+  recordScore,
+  writeName,
+} from "./scores.js"
 import { built, repository, revision } from "./version.js"
 
 const app = document.querySelector("#app")
@@ -69,6 +82,8 @@ const ui = {
   values: false,
   log: false,
   handScroll: 0,
+  board: null,
+  boardNote: "",
 }
 
 let match = null
@@ -660,16 +675,18 @@ function scoreWhen(entry) {
 }
 
 function topScoresHtml() {
-  const scores = readScores(localStorage)
-  const rows = scores.length
-    ? `<ol>${scores
-        .map(
-          (entry, index) =>
-            `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span>${scoreWhen(entry)}</span><b>${entry.score}</b></li>`
-        )
-        .join("")}</ol>`
-    : `<p class="empty-note">Finish a match to post a score.</p>`
-  return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2>${rows}</section>`
+  const scores = ui.board
+  const rows = !scores
+    ? `<p class="empty-note">${esc(ui.boardNote || "Loading scores…")}</p>`
+    : scores.length
+      ? `<ol>${scores
+          .map(
+            (entry, index) =>
+              `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span>${scoreWhen(entry)}</span><b>${entry.score}</b></li>`
+          )
+          .join("")}</ol>`
+      : `<p class="empty-note">${esc(ui.boardNote || "Finish a match to post a score.")}</p>`
+  return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2><p class="score-note">Shared by everyone who finishes a match.</p>${rows}</section>`
 }
 
 function nameField() {
@@ -1075,13 +1092,30 @@ function rememberScore() {
   match.scorePosted = true
   const you = match.players.find((player) => player.isHuman)
   if (!you) return
-  recordScore(localStorage, {
+  const entry = {
     name: you.name || "You",
     score: match.teams[you.team].total,
     rules: match.rules,
     opponents: match.playerCount - 1,
     when: new Date().toISOString(),
-  })
+  }
+  recordScore(localStorage, entry)
+  postScore(entry)
+    .then(() => syncBoard())
+    .catch(() => queueScore(localStorage, entry))
+}
+
+async function syncBoard() {
+  try {
+    await migrateStoredScores(localStorage)
+    await flushOutbox(localStorage)
+    ui.board = await fetchScores()
+    ui.boardNote = ""
+  } catch {
+    if (!ui.board) ui.board = []
+    ui.boardNote = "Scores could not be loaded."
+  }
+  if (ui.screen === "lobby") render()
 }
 
 function notePhase() {
@@ -1423,3 +1457,4 @@ app.addEventListener("click", onClick)
 app.addEventListener("input", onSpeed)
 app.addEventListener("input", onName)
 render()
+syncBoard()

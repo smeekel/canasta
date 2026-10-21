@@ -8,12 +8,10 @@ House rules is the option selected when the page opens. It is four hands, everyo
 
 Cards travel between the stock, the hand, the foot, the melds, and the discard pile. The speed control on the lobby and the table changes how fast those moves play.
 
-Serve this folder:
+Finished games share one score list. Run the Node server, which also serves the game and keeps the scores in SQLite:
 
 ```bash
-node script/serve.mjs
+node server.mjs
 ```
 
-The server reads the latest commit and shows that check-in on the page. Open the address it prints. `file://` will not load the modules.
-
-To publish these files from a static host, run `node script/version.mjs` first. That writes the same commit into `js/version.js`. A push to main does this on GitHub and saves the stamp. A commit cannot contain its own hash, so the saved stamp names the commit just pushed.
+Then open the address it prints. `file://` will not load the modules.
