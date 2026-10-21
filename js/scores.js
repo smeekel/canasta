@@ -39,7 +39,12 @@ export function finishedWhen(value) {
   if (!value) return ""
   const when = new Date(value)
   if (Number.isNaN(when.getTime())) return ""
-  return `${when.toISOString().slice(0, 16).replace("T", " ")} UTC`
+  const pad = (part) => String(part).padStart(2, "0")
+  const zone = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+    .formatToParts(when)
+    .find((part) => part.type === "timeZoneName")?.value
+  const stamp = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())} ${pad(when.getHours())}:${pad(when.getMinutes())}`
+  return zone ? `${stamp} ${zone}` : stamp
 }
 
 export function readScores(storage) {
