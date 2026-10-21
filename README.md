@@ -8,10 +8,10 @@ House rules is the option selected when the page opens. It is four hands, everyo
 
 Cards travel between the stock, the hand, the foot, the melds, and the discard pile. The speed control on the lobby and the table changes how fast those moves play.
 
-Serve this folder from any static host:
+Finished games share one score list. Run the Node server, which also serves the game and keeps the scores in SQLite:
 
 ```bash
-python3 -m http.server 8080
+node server.mjs
 ```
 
-Then open the site. `file://` will not load the modules.
+Then open the address it prints. `file://` will not load the modules.
