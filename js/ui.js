@@ -17,6 +17,7 @@ import {
   meetsGoOut,
   openingRequirement,
   placementAllowed,
+  possibleMelds,
   rankLabel,
   sideName,
   sortHand,
@@ -86,6 +87,7 @@ const ui = {
   log: false,
   options: false,
   assist: savedOptions.assist,
+  handMelds: false,
   handScroll: 0,
   board: null,
   boardNote: "",
@@ -836,7 +838,11 @@ function tableHtml() {
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
     ${foot}
     ${go}
-    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
+    <div class="hand-area">
+      <button type="button" class="hand-info" data-act="hand-melds" aria-expanded="${ui.handMelds}" aria-label="Possible melds" title="Possible melds">${infoIcon()}</button>
+      <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
+      ${handMeldFlyout()}
+    </div>
     ${valuesFlyout()}
     ${logFlyout()}
   </main>`
@@ -871,6 +877,24 @@ function optionsFlyout() {
     <p class="assist-key"><span class="swatch add" aria-hidden="true"></span>Blue cards can be added to a meld.</p>
     <p class="assist-key"><span class="swatch fresh" aria-hidden="true"></span>Amber cards can start a new meld.</p>
     <p class="assist-note">Kept in this browser.</p>
+  </aside>`
+}
+
+function infoIcon() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.1" fill="currentColor"/></svg>`
+}
+
+function handMeldFlyout() {
+  if (!ui.handMelds) return ""
+  const found = possibleMelds(me().hand, match.rules === "house")
+  const rows = found.lines
+    .map((line) => `<li><span>${esc(line.label)} x${line.count}</span><b>${line.points}</b></li>`)
+    .join("")
+  const empty = found.lines.length ? "" : `<p>No set of three in your hand yet.</p>`
+  return `<aside class="flyout hand-meld-flyout" role="dialog" aria-label="Possible melds">
+    <div class="meld-head"><span>Possible melds</span><button type="button" class="x" data-act="hand-melds" aria-label="Close possible melds">×</button></div>
+    ${empty}
+    <ul>${rows}<li class="grand"><span>Total</span><b>${found.total}</b></li></ul>
   </aside>`
 }
 
@@ -1211,6 +1235,7 @@ function leaveGame() {
   ui.values = false
   ui.log = false
   ui.options = false
+  ui.handMelds = false
   ui.error = ""
   ui.busy = false
   ui.summarize = false
@@ -1422,7 +1447,7 @@ function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node) return
   const act = node.dataset.act
-  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "options" && act !== "assist") return
+  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "options" && act !== "assist" && act !== "hand-melds") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1439,6 +1464,7 @@ function onClick(event) {
     if (ui.values) {
       ui.log = false
       ui.options = false
+      ui.handMelds = false
     }
     render()
     return
@@ -1448,6 +1474,7 @@ function onClick(event) {
     if (ui.log) {
       ui.values = false
       ui.options = false
+      ui.handMelds = false
     }
     render()
     return
@@ -1464,6 +1491,15 @@ function onClick(event) {
   if (act === "assist") {
     ui.assist = !ui.assist
     writeOptions(localStorage, { assist: ui.assist })
+    render()
+    return
+  }
+  if (act === "hand-melds") {
+    ui.handMelds = !ui.handMelds
+    if (ui.handMelds) {
+      ui.values = false
+      ui.log = false
+    }
     render()
     return
   }

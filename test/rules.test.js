@@ -12,6 +12,7 @@ import {
   discardInfo,
   evaluateScores,
   isBlackThree,
+  possibleMelds,
   isRedThree,
   isWild,
   openingRequirement,
@@ -146,6 +147,54 @@ test("meld shape: two naturals, at most three wilds, no lone wilds", () => {
   assert.equal(describeMeld(wilds).ok, false)
   assert.equal(describeMeld(wilds, false, true).wild, true)
   assert.equal(describeMeld(wilds, false, true).rank, -1)
+})
+
+test("possible melds count sets of three in the hand", () => {
+  const card = (rank, suit = "s") => ({ rank, suit, deck: 0 })
+  const hand = [
+    card(5),
+    card(6, "h"),
+    card(7),
+    card(7, "h"),
+    card(7, "d"),
+    card(13),
+    card(13, "h"),
+    card(1),
+    card(1, "h"),
+    card(1, "d"),
+    card(1, "c"),
+  ]
+  const found = possibleMelds(hand)
+  assert.deepEqual(
+    found.lines.map((line) => [line.label, line.count, line.points]),
+    [
+      ["7", 3, 15],
+      ["A", 4, 80],
+    ]
+  )
+  assert.equal(found.total, 95)
+
+  const withWild = possibleMelds([...hand, card(2, "h"), card(0, "r")])
+  assert.equal(withWild.total, 95)
+  const houseWild = possibleMelds([card(2), card(2, "h"), card(2, "d")], true)
+  assert.deepEqual(
+    houseWild.lines.map((line) => [line.label, line.count, line.points]),
+    [["Wild", 3, 60]]
+  )
+  assert.equal(possibleMelds([card(2), card(2, "h"), card(2, "d")], false).lines.length, 0)
+
+  const many = Array.from({ length: 10 }, (_, index) => card(7, ["s", "h", "d", "c"][index % 4]))
+  const split = possibleMelds(many)
+  assert.deepEqual(
+    split.lines.map((line) => [line.count, line.points]),
+    [
+      [7, 35],
+      [3, 15],
+    ]
+  )
+  assert.equal(split.total, 50)
+  assert.equal(possibleMelds(Array.from({ length: 8 }, () => card(7))).total, 35)
+  assert.equal(possibleMelds([card(3, "s"), card(3, "c"), card(3, "s")]).lines.length, 0)
 })
 
 test("card points", () => {
