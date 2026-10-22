@@ -15,9 +15,58 @@ const types = {
   ".json": "application/json",
 }
 
+function normalizeIp(value) {
+  return String(value || "").trim().replace(/^::ffff:/i, "")
+}
+
+function isIpv4(text) {
+  const parts = text.split(".")
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
+function isIpv6(text) {
+  if (!text || !/^[0-9a-f:]+$/i.test(text)) return false
+  const halves = text.split("::")
+  if (halves.length > 2) return false
+  const groups = halves.map((half) => (half ? half.split(":") : []))
+  if (groups.some((side) => side.some((part) => !/^[0-9a-f]{1,4}$/i.test(part)))) return false
+  const count = groups.reduce((sum, side) => sum + side.length, 0)
+  return halves.length === 1 ? count === 8 : count < 8
+}
+
+function parseHop(value) {
+  let text = String(value || "").trim().replace(/^["']|["']$/g, "")
+  if (!text || /^unknown$/i.test(text)) return ""
+  if (text.startsWith("[")) {
+    const end = text.indexOf("]")
+    if (end < 2) return ""
+    text = text.slice(1, end)
+  } else {
+    const v4 = text.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/)
+    if (v4) text = v4[1]
+  }
+  text = normalizeIp(text)
+  return isIpv4(text) || isIpv6(text) ? text : ""
+}
+
+function forwardedIp(headers) {
+  const forwarded = headers?.["x-forwarded-for"]
+  if (forwarded) {
+    const hops = String(forwarded).split(",").map((hop) => hop.trim()).filter(Boolean)
+    const last = parseHop(hops.at(-1))
+    if (last) return last
+  }
+  return parseHop(headers?.["x-real-ip"])
+}
+
+export function clientAddress(peer, headers) {
+  const direct = normalizeIp(peer).slice(0, 80)
+  if (direct !== "127.0.0.1" && direct !== "::1") return direct
+  return (forwardedIp(headers) || direct).slice(0, 80)
+}
+
 function clientIp(request) {
-  const address = request.socket?.remoteAddress || ""
-  return address.replace(/^::ffff:/, "").slice(0, 80)
+  return clientAddress(request.socket?.remoteAddress || "", request.headers)
 }
 
 function clientBrowser(request) {
