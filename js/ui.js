@@ -28,7 +28,6 @@ import {
   fetchScores,
   finishedWhen,
   flushOutbox,
-  migrateStoredScores,
   playingName,
   postScore,
   queueScore,
@@ -1211,7 +1210,6 @@ function rememberScore() {
 
 async function syncBoard() {
   try {
-    await migrateStoredScores(localStorage)
     await flushOutbox(localStorage)
     ui.board = await fetchScores()
     ui.boardNote = ""

@@ -116,15 +116,6 @@ export function startServer({ port = 8080, host = "127.0.0.1", dbPath = defaultD
         sendJson(response, saved ? 201 : 200, { ok: true, saved })
         return
       }
-      if (url.pathname === "/api/scores/migrate" && request.method === "POST") {
-        const body = await readJson(request)
-        const scores = Array.isArray(body.scores) ? body.scores.slice(0, 20) : []
-        let saved = 0
-        for (const entry of scores) saved += addScore(db, entry, { ip, browser, origin: "browser" }) ? 1 : 0
-        rememberProfile(db, { name: body.name, ip, browser })
-        sendJson(response, 200, { ok: true, saved })
-        return
-      }
       if (url.pathname.startsWith("/api/")) {
         sendJson(response, 404, { ok: false })
         return
