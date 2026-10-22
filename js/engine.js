@@ -182,6 +182,48 @@ export function describeMeld(cards, allowBlack = false, allowWild = false) {
   }
 }
 
+export function assistMarks(hand, melds, allowWild = false) {
+  const cards = hand || []
+  const open = (melds || []).filter((meld) => meld.cards && meld.cards.length < 7)
+  const openRank = new Set(open.filter((meld) => meld.rank >= 0).map((meld) => meld.rank))
+  const add = new Set()
+  const fresh = new Set()
+  const byRank = new Map()
+  const wilds = []
+  for (const card of cards) {
+    if (isWild(card)) wilds.push(card)
+    else if (isNatural(card)) {
+      if (!byRank.has(card.rank)) byRank.set(card.rank, [])
+      byRank.get(card.rank).push(card)
+    }
+  }
+  for (const [rank, group] of byRank) {
+    const fits = open.some((meld) => meld.rank === rank && describeMeld([...meld.cards, group[0]], false, allowWild).ok)
+    if (fits) for (const card of group) add.add(card.id)
+  }
+  const wildAdds = wilds.length > 0 && open.some((meld) => describeMeld([...meld.cards, wilds[0]], false, allowWild).ok)
+  if (wildAdds) for (const card of wilds) add.add(card.id)
+  let canStartWithWild = false
+  for (const [rank, group] of byRank) {
+    if (openRank.has(rank)) continue
+    if (group.length >= 3) {
+      for (const card of group) fresh.add(card.id)
+      canStartWithWild = true
+    } else if (group.length >= 2 && wilds.length > 0) {
+      for (const card of group) fresh.add(card.id)
+      canStartWithWild = true
+    }
+  }
+  const openWild = open.some((meld) => meld.rank < 0)
+  if (!wildAdds && (canStartWithWild || (allowWild && wilds.length >= 3 && !openWild))) {
+    for (const card of wilds) fresh.add(card.id)
+  }
+  return {
+    add: cards.filter((card) => add.has(card.id)).map((card) => card.id),
+    fresh: cards.filter((card) => fresh.has(card.id)).map((card) => card.id),
+  }
+}
+
 function rng(state) {
   let x = state.seed >>> 0
   x ^= x << 13
