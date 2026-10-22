@@ -16,6 +16,7 @@ import {
   meetsGoOut,
   openingRequirement,
   placementAllowed,
+  possibleMelds,
   rankLabel,
   sideName,
   sortHand,
@@ -81,6 +82,7 @@ const ui = {
   summarize: false,
   values: false,
   log: false,
+  handMelds: false,
   handScroll: 0,
   board: null,
   boardNote: "",
@@ -821,7 +823,11 @@ function tableHtml() {
     <p class="hint${ui.error ? " warn" : ""}" role="status">${esc(hint())}</p>
     ${foot}
     ${go}
-    <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
+    <div class="hand-area">
+      <button type="button" class="hand-info" data-act="hand-melds" aria-expanded="${ui.handMelds}" aria-label="Possible melds" title="Possible melds">${infoIcon()}</button>
+      <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
+      ${handMeldFlyout()}
+    </div>
     ${valuesFlyout()}
     ${logFlyout()}
   </main>`
@@ -835,6 +841,24 @@ function logFlyout() {
   return `<aside class="flyout log-flyout" role="dialog" aria-label="Play log">
     <div class="meld-head"><span>Play log</span><button type="button" class="x" data-act="log" aria-label="Close play log">×</button></div>
     <ul>${lines}</ul>
+  </aside>`
+}
+
+function infoIcon() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.1" fill="currentColor"/></svg>`
+}
+
+function handMeldFlyout() {
+  if (!ui.handMelds) return ""
+  const found = possibleMelds(me().hand, match.rules === "house")
+  const rows = found.lines
+    .map((line) => `<li><span>${esc(line.label)} x${line.count}</span><b>${line.points}</b></li>`)
+    .join("")
+  const empty = found.lines.length ? "" : `<p>No set of three in your hand yet.</p>`
+  return `<aside class="flyout hand-meld-flyout" role="dialog" aria-label="Possible melds">
+    <div class="meld-head"><span>Possible melds</span><button type="button" class="x" data-act="hand-melds" aria-label="Close possible melds">×</button></div>
+    ${empty}
+    <ul>${rows}<li class="grand"><span>Total</span><b>${found.total}</b></li></ul>
   </aside>`
 }
 
@@ -1174,6 +1198,7 @@ function leaveGame() {
   ui.modal = null
   ui.values = false
   ui.log = false
+  ui.handMelds = false
   ui.error = ""
   ui.busy = false
   ui.summarize = false
@@ -1384,7 +1409,7 @@ function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node) return
   const act = node.dataset.act
-  if (ui.busy && act !== "about" && act !== "close" && act !== "title") return
+  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "hand-melds") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1398,18 +1423,33 @@ function onClick(event) {
   if (act === "speed" || act === "name") return
   if (act === "values") {
     ui.values = !ui.values
-    if (ui.values) ui.log = false
+    if (ui.values) {
+      ui.log = false
+      ui.handMelds = false
+    }
     render()
     return
   }
   if (act === "log") {
     ui.log = !ui.log
-    if (ui.log) ui.values = false
+    if (ui.log) {
+      ui.values = false
+      ui.handMelds = false
+    }
     render()
     return
   }
-  if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), render())
-  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), render())
+  if (act === "hand-melds") {
+    ui.handMelds = !ui.handMelds
+    if (ui.handMelds) {
+      ui.values = false
+      ui.log = false
+    }
+    render()
+    return
+  }
+  if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), (ui.handMelds = false), render())
+  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), (ui.handMelds = false), render())
   if (act === "scores") return ((ui.modal = "scores"), render())
   if (act === "close") return ((ui.modal = null), render())
   if (act === "start" || act === "again") return startMatch()
