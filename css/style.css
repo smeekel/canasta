@@ -53,7 +53,9 @@ button.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line);
 button:disabled { opacity: 0.45; cursor: default; }
 body.is-busy button { pointer-events: none; }
 body.is-busy button.version,
-body.is-busy button[data-act="title"] { pointer-events: auto; }
+body.is-busy button[data-act="title"],
+body.is-busy button.hand-info,
+body.is-busy button[data-act="hand-melds"] { pointer-events: auto; }
 
 .shell { width: min(1080px, 100%); margin: 0 auto; padding: 12px 12px 20px; }
 
@@ -391,6 +393,23 @@ button.undo:disabled {
 .stage-group { display: flex; align-items: center; gap: 4px; }
 .stage-group button.x { min-height: 32px; padding: 4px 8px; }
 
+.hand-area { position: relative; }
+.hand-info {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--cream);
+}
+.hand-info svg { width: 22px; height: 22px; display: block; }
+.hand-info[aria-expanded="true"] { background: var(--gold); color: var(--ink); }
 .hand-scroll {
   display: flex;
   justify-content: safe center;
@@ -398,6 +417,19 @@ button.undo:disabled {
   padding: 72px 12px 24px;
   margin: 0 -8px;
 }
+.flyout.hand-meld-flyout {
+  position: absolute;
+  top: auto;
+  right: 4px;
+  bottom: calc(100% - 4px);
+  width: min(240px, calc(100vw - 24px));
+}
+@media (max-width: 640px) {
+  .flyout.hand-meld-flyout { top: auto; }
+}
+.hand-meld-flyout ul { max-height: min(42dvh, 280px); overflow: auto; }
+.hand-meld-flyout .grand { border-bottom: 0; margin-top: 2px; font-weight: 700; }
+.hand-meld-flyout .grand b { font-size: 1.05rem; }
 .hand { --fan-overlap: -26px; display: flex; width: max-content; flex: 0 0 auto; }
 .hand.tight { --fan-overlap: -32px; }
 .card.empty { font-size: 0.8rem; color: #6d6456; }

@@ -88,6 +88,44 @@ export function isNatural(card) {
   return card.rank === 1 || card.rank >= 4
 }
 
+function meldOrder(rank) {
+  if (rank < 0) return 100
+  if (rank === 1) return 14
+  return rank
+}
+
+export function possibleMelds(cards, allowWild = false) {
+  const buckets = new Map()
+  const wilds = []
+  for (const card of cards || []) {
+    if (!card || isRedThree(card) || isBlackThree(card)) continue
+    if (isWild(card)) {
+      if (allowWild) wilds.push(card)
+      continue
+    }
+    if (!isNatural(card)) continue
+    if (!buckets.has(card.rank)) buckets.set(card.rank, [])
+    buckets.get(card.rank).push(card)
+  }
+  const lines = []
+  const pushChunks = (rank, label, list) => {
+    const left = list.slice()
+    while (left.length >= 3) {
+      const take = left.splice(0, Math.min(7, left.length))
+      lines.push({
+        rank,
+        label,
+        count: take.length,
+        points: take.reduce((sum, card) => sum + cardPoints(card), 0),
+      })
+    }
+  }
+  for (const [rank, list] of buckets) pushChunks(rank, rankLabel(list[0]), list)
+  if (wilds.length >= 3) pushChunks(WILD_RANK, "Wild", wilds)
+  lines.sort((a, b) => meldOrder(a.rank) - meldOrder(b.rank) || b.count - a.count)
+  return { lines, total: lines.reduce((sum, line) => sum + line.points, 0) }
+}
+
 const HOUSE_OPENING = [50, 90, 120, 150]
 
 export function openingRequirement(total, state) {
