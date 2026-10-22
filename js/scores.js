@@ -57,7 +57,6 @@ export function readScores(storage) {
   }
 }
 
-export const MIGRATED_KEY = "canasta-scores-migrated"
 const OUTBOX_KEY = "canasta-score-outbox"
 
 export function readOutbox(storage) {
@@ -93,25 +92,6 @@ export async function fetchScores() {
   if (!response.ok) throw new Error("Scores could not be loaded.")
   const body = await response.json()
   return Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
-}
-
-export async function migrateStoredScores(storage) {
-  try {
-    if (storage.getItem(MIGRATED_KEY) === "1") return
-  } catch {
-    return
-  }
-  const response = await fetch("/api/scores/migrate", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: readName(storage), scores: readScores(storage) }),
-  })
-  if (!response.ok) throw new Error("Saved scores could not be sent.")
-  try {
-    storage.setItem(MIGRATED_KEY, "1")
-  } catch {
-    /* a later load will try again */
-  }
 }
 
 export async function flushOutbox(storage) {

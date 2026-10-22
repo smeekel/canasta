@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { MIGRATED_KEY, fetchScores, flushOutbox, migrateStoredScores, queueScore, readOutbox, recordScore } from "../js/scores.js"
+import { fetchScores, flushOutbox, queueScore, readOutbox } from "../js/scores.js"
 import { addScore, openScores, storedScores, topScores } from "../script/db.mjs"
 import { clientAddress, startServer } from "../server.mjs"
 
@@ -65,8 +65,8 @@ test("a finished game is stored with address and browser and the board stays pub
   }
 })
 
-test("the first visit sends saved browser scores once", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "canasta-migrate-"))
+test("a score that failed to post is sent on the next visit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canasta-outbox-"))
   const server = startServer({ port: 0, host: "127.0.0.1", dbPath: join(dir, "scores.sqlite") })
   const storage = memory()
   const previous = globalThis.fetch
@@ -74,27 +74,22 @@ test("the first visit sends saved browser scores once", async () => {
     await listen(server)
     const port = server.address().port
     globalThis.fetch = (url, options) => previous(new URL(url, `http://127.0.0.1:${port}`), options)
-    recordScore(storage, { name: "Mina", score: 900, rules: "classic", opponents: 1, when: "2026-09-01T12:00:00.000Z" })
-    recordScore(storage, { name: "Mina", score: 50, rules: "house", opponents: 3, when: "2026-09-02T12:00:00.000Z" })
-    storage.setItem("canasta-name", "Mina")
     queueScore(storage, { name: "Ellis", score: 300, rules: "house", opponents: 2, when: "2026-09-03T12:00:00.000Z" })
-    await migrateStoredScores(storage)
     await flushOutbox(storage)
-    assert.equal(storage.getItem(MIGRATED_KEY), "1")
     assert.equal(readOutbox(storage).length, 0)
-    await migrateStoredScores(storage)
     const board = topScores(server.db)
-    assert.deepEqual(
-      board.map((row) => row.name + row.score),
-      ["Mina900", "Ellis300", "Mina50"]
-    )
-    const rows = storedScores(server.db)
-    assert.equal(rows.filter((row) => row.origin === "browser").length, 2)
-    assert.equal(rows.filter((row) => row.origin === "game").length, 1)
-    assert.ok(rows.every((row) => row.ip === "127.0.0.1" && row.browser))
+    assert.deepEqual(board.map((row) => row.name + row.score), ["Ellis300"])
+    const [row] = storedScores(server.db)
+    assert.equal(row.origin, "game")
+    assert.equal(row.ip, "127.0.0.1")
     const seen = await fetchScores()
-    assert.equal(seen.length, 3)
-    assert.equal(seen.some((row) => "ip" in row || "browser" in row), false)
+    assert.equal(seen.some((entry) => "ip" in entry || "browser" in entry), false)
+    const gone = await fetch(`http://127.0.0.1:${port}/api/scores/migrate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    })
+    assert.equal(gone.status, 404)
   } finally {
     globalThis.fetch = previous
     await new Promise((resolve) => server.close(resolve))
