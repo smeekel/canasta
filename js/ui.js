@@ -1,6 +1,7 @@
 import { planTurn } from "./ai.js"
 import {
   apply,
+  assistMarks,
   canastaBreakdown,
   canastasNeeded,
   cardName,
@@ -36,6 +37,7 @@ import {
   recordScore,
   writeName,
 } from "./scores.js"
+import { readOptions, writeOptions } from "./options.js"
 import { built, repository, revision } from "./version.js"
 
 const app = document.querySelector("#app")
@@ -66,6 +68,7 @@ function loadSpeed() {
   return 3
 }
 
+const savedOptions = readOptions(localStorage)
 const ui = {
   screen: "lobby",
   rules: "house",
@@ -82,6 +85,8 @@ const ui = {
   summarize: false,
   values: false,
   log: false,
+  options: false,
+  assist: savedOptions.assist,
   handMelds: false,
   handScroll: 0,
   board: null,
@@ -116,14 +121,15 @@ function selectedCards() {
   return [...ui.selected].map((id) => hand.find((card) => card.id === id)).filter(Boolean)
 }
 
-function cardMarkup(card, { tag = "span", small = false, selected = false, extra = "", attrs = "" } = {}) {
+function cardMarkup(card, { tag = "span", small = false, selected = false, extra = "", attrs = "", note = "" } = {}) {
   const joker = card.rank === 0
   const red = card.suit === "h" || card.suit === "d" || (joker && card.suit === "r")
   const classes = ["card", red ? "red" : "black", joker ? "joker" : "", small ? "sm" : "", selected ? "sel" : "", extra]
     .filter(Boolean)
     .join(" ")
   const cid = card.id != null && !String(extra).includes("ghost") ? ` data-cid="${card.id}"` : ""
-  const open = tag === "button" ? `<button type="button" class="${classes}" aria-label="${esc(cardName(card))}" aria-pressed="${selected}" ${attrs}${cid}>` : `<span class="${classes}" aria-hidden="true" ${attrs}${cid}>`
+  const label = note ? `${cardName(card)}. ${note}` : cardName(card)
+  const open = tag === "button" ? `<button type="button" class="${classes}" aria-label="${esc(label)}" aria-pressed="${selected}" ${attrs}${cid}>` : `<span class="${classes}" aria-hidden="true" ${attrs}${cid}>`
   const close = tag === "button" ? "</button>" : "</span>"
   if (joker) return `${open}<span class="j-star">★</span><span class="j-word">Joker</span>${close}`
   const rank = rankLabel(card)
@@ -760,6 +766,7 @@ function lobbyHtml() {
   ]
   const house = ui.rules === "house"
   return `<main class="lobby"><section class="panel">
+    <div class="panel-top">${optionsButton()}</div>
     <p class="eyebrow">${house ? "House rules" : "Classic"}</p>
     <h1>Canasta</h1>
     <p class="lede">${house ? "Four hands, a bigger pack, and a foot. You, and up to three opponents." : "Four hands on a green table. You, and up to three opponents."}</p>
@@ -787,9 +794,17 @@ function tableHtml() {
   const choice = handChoice(chosen)
   const anchorId = chosen[0]?.id
   const total = choice && (match.phase === "meld" || ui.taking) ? runningLabel(chosen) : ""
+  const assist = assistFor(hand)
   const cards = hand
     .map((card, index) => {
-      const face = cardMarkup(card, { tag: "button", selected: ui.selected.has(card.id), attrs: `data-act="card" data-id="${card.id}"` })
+      const hint = assist.add.has(card.id) ? "add" : assist.fresh.has(card.id) ? "fresh" : ""
+      const face = cardMarkup(card, {
+        tag: "button",
+        selected: ui.selected.has(card.id),
+        extra: hint === "add" ? "assist-add" : hint === "fresh" ? "assist-new" : "",
+        note: hint === "add" ? "Can be added to a meld." : hint === "fresh" ? "Can start a new meld." : "",
+        attrs: `data-act="card" data-id="${card.id}"`,
+      })
       const chip = card.id === anchorId && total ? `<span class="points-chip">${esc(total)}</span>` : ""
       const buttons = choice ? choice.buttons.map((button) => popButton(button.act, button.label, button)).join("") : ""
       const bubble = card.id === anchorId && choice ? pop(`${chip}${buttons}`) : ""
@@ -813,7 +828,7 @@ function tableHtml() {
     match.phase === "matchEnd" ? "Game over" : openAt ? `Hand ${match.handNumber} of 4 · open ${openAt}` : `Hand ${match.handNumber} of 4`
   const undo = `<button type="button" class="undo" data-act="undo"${canUndo() ? "" : " disabled"}>Undo</button>`
   return `<main class="shell${yourTurn ? " your-turn" : ""}">
-    <header class="topbar"><div class="brand"><span>${match.rules === "house" ? "House Canasta" : "Canasta"}</span>${versionButton()}</div><div class="top-actions"><button type="button" class="ghost" data-act="title" title="Ends this game">Title</button>${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button><button type="button" class="ghost" data-act="rules">Rules</button></div></header>
+    <header class="topbar"><div class="brand"><span>${match.rules === "house" ? "House Canasta" : "Canasta"}</span>${versionButton()}</div><div class="top-actions"><button type="button" class="ghost" data-act="title" title="Ends this game">Title</button>${speedControl()}${undo}<button type="button" class="ghost" data-act="scores">Score</button><button type="button" class="ghost" data-act="log" aria-expanded="${ui.log}">Log</button><button type="button" class="ghost" data-act="values" aria-expanded="${ui.values}">Values</button>${optionsButton()}<button type="button" class="ghost" data-act="rules">Rules</button></div></header>
     <div class="scoreline"><span${openAt ? ` title="Opening meld needs ${openAt} points"` : ""}>${dealLabel}</span>${finished}<span>${scoreText()}</span></div>
     <section class="seats">${opponents.map(seatView).join("")}</section>
     ${opponentZones()}
@@ -841,6 +856,27 @@ function logFlyout() {
   return `<aside class="flyout log-flyout" role="dialog" aria-label="Play log">
     <div class="meld-head"><span>Play log</span><button type="button" class="x" data-act="log" aria-label="Close play log">×</button></div>
     <ul>${lines}</ul>
+  </aside>`
+}
+
+function assistFor(hand) {
+  if (!ui.assist || !match) return { add: new Set(), fresh: new Set() }
+  const marks = assistMarks(hand, myTeam().melds, match.rules === "house")
+  return { add: new Set(marks.add), fresh: new Set(marks.fresh) }
+}
+
+function optionsButton() {
+  return `<button type="button" class="ghost" data-act="options" aria-expanded="${ui.options}" aria-controls="options-panel">Options</button>`
+}
+
+function optionsFlyout() {
+  if (!ui.options) return ""
+  return `<aside class="flyout options-flyout" id="options-panel" role="dialog" aria-label="Options">
+    <div class="meld-head"><span>Options</span><button type="button" class="x" data-act="options" aria-label="Close options">×</button></div>
+    <button type="button" class="assist-toggle" data-act="assist" aria-pressed="${ui.assist}"><span class="switch${ui.assist ? " on" : ""}" aria-hidden="true"></span><span>Player assist</span></button>
+    <p class="assist-key"><span class="swatch add" aria-hidden="true"></span>Blue cards can be added to a meld.</p>
+    <p class="assist-key"><span class="swatch fresh" aria-hidden="true"></span>Amber cards can start a new meld.</p>
+    <p class="assist-note">Kept in this browser.</p>
   </aside>`
 }
 
@@ -1198,6 +1234,7 @@ function leaveGame() {
   ui.modal = null
   ui.values = false
   ui.log = false
+  ui.options = false
   ui.handMelds = false
   ui.error = ""
   ui.busy = false
@@ -1214,7 +1251,7 @@ function render() {
   const scroller = document.querySelector(".hand-scroll")
   if (scroller) ui.handScroll = scroller.scrollLeft
   document.body.classList.toggle("is-busy", ui.busy)
-  app.innerHTML = (ui.screen === "table" && match ? tableHtml() : lobbyHtml()) + modalHtml()
+  app.innerHTML = (ui.screen === "table" && match ? tableHtml() : lobbyHtml()) + optionsFlyout() + modalHtml()
   const next = document.querySelector(".hand-scroll")
   if (next) next.scrollLeft = ui.handScroll
 }
@@ -1368,6 +1405,7 @@ async function startMatch(seed = (Date.now() ^ (Math.random() * 0x100000000)) >>
   match.players[0].name = playingName(ui.name)
   ui.screen = "table"
   ui.modal = null
+  ui.options = false
   ui.error = ""
   ui.summarize = false
   lastPhase = null
@@ -1409,7 +1447,7 @@ function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node) return
   const act = node.dataset.act
-  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "hand-melds") return
+  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "options" && act !== "assist" && act !== "hand-melds") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1425,6 +1463,7 @@ function onClick(event) {
     ui.values = !ui.values
     if (ui.values) {
       ui.log = false
+      ui.options = false
       ui.handMelds = false
     }
     render()
@@ -1434,8 +1473,24 @@ function onClick(event) {
     ui.log = !ui.log
     if (ui.log) {
       ui.values = false
+      ui.options = false
       ui.handMelds = false
     }
+    render()
+    return
+  }
+  if (act === "options") {
+    ui.options = !ui.options
+    if (ui.options) {
+      ui.values = false
+      ui.log = false
+    }
+    render()
+    return
+  }
+  if (act === "assist") {
+    ui.assist = !ui.assist
+    writeOptions(localStorage, { assist: ui.assist })
     render()
     return
   }
@@ -1448,9 +1503,9 @@ function onClick(event) {
     render()
     return
   }
-  if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), (ui.handMelds = false), render())
-  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), (ui.handMelds = false), render())
-  if (act === "scores") return ((ui.modal = "scores"), render())
+  if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), (ui.options = false), render())
+  if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), (ui.options = false), render())
+  if (act === "scores") return ((ui.modal = "scores"), (ui.options = false), render())
   if (act === "close") return ((ui.modal = null), render())
   if (act === "start" || act === "again") return startMatch()
   if (act === "title" || act === "lobby") return leaveGame()

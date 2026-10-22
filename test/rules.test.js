@@ -3,6 +3,7 @@ import test from "node:test"
 import {
   HANDS_PER_MATCH,
   apply,
+  assistMarks,
   canastaBreakdown,
   canastasNeeded,
   cardPoints,
@@ -1076,6 +1077,53 @@ test("a wild card can join an open wild meld while one card and the foot remain"
   assert.equal(player.hand.length, 1)
   assert.equal(player.foot.length, 13)
   assert.equal(state.phase, "meld")
+})
+
+function face(id, rank, suit = "s") {
+  return { id, rank, suit, deck: 0 }
+}
+
+test("assist highlights adds and new melds separately", () => {
+  const none = assistMarks([face(1, 7), face(2, 7), face(3, 7)], [], false)
+  assert.deepEqual(none.add, [])
+  assert.deepEqual(none.fresh, [1, 2, 3])
+
+  const one = assistMarks([face(1, 7)], [{ rank: 7, cards: [face(8, 7), face(9, 7), face(10, 7)] }], false)
+  assert.deepEqual(one.add, [1])
+  assert.deepEqual(one.fresh, [])
+
+  const done = [face(8, 7), face(9, 7), face(10, 7), face(11, 7), face(12, 7), face(13, 7), face(14, 7)]
+  const again = assistMarks([face(1, 7), face(2, 7), face(3, 7), face(4, 2, "h")], [{ rank: 7, cards: done }], true)
+  assert.deepEqual(again.add, [])
+  assert.deepEqual(again.fresh, [1, 2, 3, 4])
+
+  const pair = assistMarks([face(1, 13, "s"), face(2, 13, "h"), face(3, 0, "r")], [], false)
+  assert.deepEqual(pair.add, [])
+  assert.deepEqual(pair.fresh, [1, 2, 3])
+
+  const queens = [face(10, 12), face(11, 12), face(12, 12), face(13, 12)]
+  const split = assistMarks(
+    [face(1, 13, "s"), face(2, 13, "h"), face(3, 2, "h")],
+    [{ rank: 12, cards: queens }],
+    false
+  )
+  assert.deepEqual(split.add, [3])
+  assert.deepEqual(split.fresh, [1, 2])
+
+  const lonely = assistMarks([face(1, 7), face(2, 3, "s"), face(3, 3, "h")], [], true)
+  assert.deepEqual(lonely.add, [])
+  assert.deepEqual(lonely.fresh, [])
+
+  const houseWilds = assistMarks([face(1, 2, "h"), face(2, 2, "s"), face(3, 0, "r")], [], true)
+  assert.deepEqual(houseWilds.fresh, [1, 2, 3])
+  const classicWilds = assistMarks([face(1, 2, "h"), face(2, 2, "s"), face(3, 0, "r")], [], false)
+  assert.deepEqual(classicWilds.add, [])
+  assert.deepEqual(classicWilds.fresh, [])
+
+  const six = Array.from({ length: 6 }, (_, index) => face(20 + index, 7))
+  const crowded = assistMarks([face(1, 7), face(2, 7), face(3, 7)], [{ rank: 7, cards: six }], false)
+  assert.deepEqual(crowded.add, [1, 2, 3])
+  assert.deepEqual(crowded.fresh, [])
 })
 
 test("AI finishes matches for every table size", () => {

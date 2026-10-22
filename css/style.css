@@ -54,6 +54,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 body.is-busy button { pointer-events: none; }
 body.is-busy button.version,
 body.is-busy button[data-act="title"],
+body.is-busy button[data-act="options"],
+body.is-busy button[data-act="assist"] { pointer-events: auto; }
 body.is-busy button.hand-info,
 body.is-busy button[data-act="hand-melds"] { pointer-events: auto; }
 
@@ -75,6 +77,8 @@ body.is-busy button[data-act="hand-melds"] { pointer-events: auto; }
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
   text-align: center;
 }
+.panel-top { display: flex; justify-content: flex-end; margin: -12px -6px 8px; }
+.panel-top button { min-height: 36px; padding: 6px 12px; font-size: 0.9rem; }
 
 .eyebrow {
   letter-spacing: 0.22em;
@@ -501,6 +505,50 @@ button.undo:disabled {
 .flyout b { color: var(--gold); }
 .flyout p { margin: 8px 0 0; font-size: 0.88rem; line-height: 1.4; }
 .flyout .x { min-height: 32px; padding: 2px 8px; }
+.assist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 12px;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.22);
+}
+.switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(246, 241, 228, 0.28);
+  position: relative;
+  flex: 0 0 auto;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cream);
+}
+.switch.on { background: #2f8a58; }
+.switch.on::after { left: 18px; }
+.assist-key { display: flex; align-items: flex-start; gap: 8px; }
+.assist-note { color: rgba(246, 241, 228, 0.62); }
+.swatch {
+  width: 16px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  background: #fffefb;
+}
+.swatch.add { outline: 2px solid rgba(126, 196, 232, 0.95); outline-offset: 1px; }
+.swatch.fresh { outline: 2px solid rgba(232, 156, 92, 0.95); outline-offset: 1px; }
+.hand .card.assist-add { outline: 2px solid rgba(126, 196, 232, 0.95); outline-offset: 2px; }
+.hand .card.assist-new { outline: 2px solid rgba(232, 156, 92, 0.95); outline-offset: 2px; }
 .log-flyout { left: 16px; right: auto; }
 .log-flyout ul { max-height: min(50dvh, 360px); overflow: auto; margin-bottom: 0; }
 .log-flyout li { display: block; font-size: 0.9rem; line-height: 1.35; }
