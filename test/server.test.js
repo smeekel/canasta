@@ -5,7 +5,7 @@ import { join } from "node:path"
 import test from "node:test"
 import { MIGRATED_KEY, fetchScores, flushOutbox, migrateStoredScores, queueScore, readOutbox, recordScore } from "../js/scores.js"
 import { addScore, openScores, storedScores, topScores } from "../script/db.mjs"
-import { startServer } from "../server.mjs"
+import { clientAddress, startServer } from "../server.mjs"
 
 function memory() {
   const data = new Map()
@@ -101,6 +101,43 @@ test("the first visit sends saved browser scores once", async () => {
     server.db.close()
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("a local proxy keeps the visitor address HAProxy forwarded", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canasta-proxy-"))
+  const server = startServer({ port: 0, host: "127.0.0.1", dbPath: join(dir, "scores.sqlite") })
+  try {
+    await listen(server)
+    const port = server.address().port
+    const posted = await fetch(`http://127.0.0.1:${port}/api/scores`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "CanastaTest/1.0",
+        "x-forwarded-for": "203.0.113.8, 198.51.100.22",
+      },
+      body: JSON.stringify({ name: "Ada", score: 1800, rules: "house", opponents: 1, when: "2026-10-22T20:00:00.000Z" }),
+    })
+    assert.equal(posted.status, 201)
+    const [row] = storedScores(server.db)
+    assert.equal(row.ip, "198.51.100.22")
+    const listed = await fetch(`http://127.0.0.1:${port}/api/scores`)
+    const body = await listed.json()
+    assert.equal(JSON.stringify(body).includes("198.51.100.22"), false)
+    assert.equal(server.db.prepare("SELECT ip FROM profiles").get().ip, "198.51.100.22")
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    server.db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("only a loopback proxy may supply the visitor address", () => {
+  assert.equal(clientAddress("::ffff:127.0.0.1", { "x-forwarded-for": "203.0.113.10" }), "203.0.113.10")
+  assert.equal(clientAddress("::1", { "x-real-ip": "[2001:db8::20]:443" }), "2001:db8::20")
+  assert.equal(clientAddress("127.0.0.1", { "x-forwarded-for": "not-an-ip" }), "127.0.0.1")
+  assert.equal(clientAddress("203.0.113.50", { "x-forwarded-for": "198.51.100.8" }), "203.0.113.50")
+  assert.equal(clientAddress("::ffff:203.0.113.50", {}), "203.0.113.50")
 })
 
 test("only the ten highest scores are listed", () => {
