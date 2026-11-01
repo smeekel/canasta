@@ -711,6 +711,31 @@ button.undo:disabled {
 .sheet time { font-variant-numeric: tabular-nums; }
 .sheet p, .sheet li { font-size: 0.95rem; line-height: 1.45; }
 .sheet .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+button.score-row {
+  width: 100%;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  min-height: 44px;
+  padding: 8px 0;
+}
+button.score-row[aria-expanded="true"] { border-bottom: 0; padding-bottom: 2px; }
+.score-row .chev { display: inline-block; width: 1.1em; color: var(--gold); }
+.ledger {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0 0 8px 1.4em;
+  border-bottom: 1px solid var(--line);
+}
+.ledger li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 0.9rem;
+}
+.ledger .sum { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 6px; font-weight: 700; }
+.sheet .row b, .ledger b { font-variant-numeric: tabular-nums; }
 .sheet .total { font-size: 1.15rem; }
 .sheet .actions { position: static; background: none; padding-top: 12px; }
 

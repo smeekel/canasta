@@ -11,6 +11,7 @@ import {
   describeMeld,
   discardInfo,
   evaluateScores,
+  scoreBreakdown,
   isBlackThree,
   possibleMelds,
   isRedThree,
@@ -349,11 +350,37 @@ test("scoring: mixed canasta, red threes, and a hand penalty", () => {
   assert.equal(us.going, 100)
   assert.equal(us.penalty, 20)
   assert.equal(us.melded, 5 * 10 + 2 * 20)
+  const items = scoreBreakdown(state, 0)
+  assert.equal(items[0].label, "Mixed canasta of kings")
+  assert.equal(items[0].amount, 300)
+  assert.equal(items[1].label, "Kings, 7 cards")
+  assert.equal(items[1].amount, 90)
+  assert.equal(items.filter((item) => item.label.startsWith("Red three")).length, 4)
+  assert.ok(items.filter((item) => item.label.startsWith("Red three")).every((item) => item.amount === 200))
+  assert.equal(items.find((item) => item.label === "Going out").amount, 100)
+  assert.equal(items.at(-1).label, "Ellis: Ace of spades left in hand")
+  assert.equal(items.at(-1).amount, -20)
+  assert.equal(
+    items.reduce((sum, item) => sum + item.amount, 0),
+    us.delta
+  )
   state.teams[1].melds = []
   state.teams[1].redThrees = reds
   state.teams[0].redThrees = []
   const scores = evaluateScores(state)
   assert.equal(scores[1].redScore, -800)
+  state.teams[1].redThrees = []
+  state.teams[0].melds = []
+  state.teams[0].redThrees = reds
+  state.players[2].hand = []
+  state.out = null
+  const closed = scoreBreakdown(state, 0)
+  assert.equal(closed.length, 4)
+  assert.ok(closed.every((item) => item.amount === -200))
+  assert.equal(
+    closed.reduce((sum, item) => sum + item.amount, 0),
+    evaluateScores(state)[0].delta
+  )
 })
 
 test("undo restores the hand and a partnership shares melds", () => {
