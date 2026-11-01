@@ -19,6 +19,7 @@ import {
   placementAllowed,
   possibleMelds,
   rankLabel,
+  scoreBreakdown,
   sideName,
   sortHand,
   suitSymbol,
@@ -87,6 +88,7 @@ const ui = {
   options: false,
   assist: savedOptions.assist,
   handMelds: false,
+  ledger: new Set(),
   handScroll: 0,
   board: null,
   boardNote: "",
@@ -626,16 +628,14 @@ function scoreHtml() {
   </section></div>`
 }
 
-function summaryHtml() {
-  const hand = match.handSummary
-  const reason =
-    hand.reason === "out"
-      ? `${esc(hand.outName)} went out${hand.concealed ? " concealed" : ""}.`
-      : hand.reason === "red3"
-        ? "The last card of the stock was a red three."
-        : "The stock ran out."
-  const lines = hand.lines
+function signed(amount) {
+  return amount < 0 ? `−${Math.abs(amount)}` : `+${amount}`
+}
+
+function handLedgerHtml(lines) {
+  return lines
     .map((item) => {
+      const open = ui.ledger.has(item.team)
       const bits = [
         item.natural ? `${item.natural} pure canasta` : "",
         item.mixed ? `${item.mixed} mixed canasta` : "",
@@ -645,9 +645,27 @@ function summaryHtml() {
         `melded ${item.melded}`,
         `in hand −${item.penalty}`,
       ].filter(Boolean)
-      return `<div class="row"><span><strong>${esc(item.name)}</strong><br>${esc(bits.join(" · "))}</span><b>${item.delta >= 0 ? "+" : ""}${item.delta}</b></div>`
+      const detail = scoreBreakdown(match, item.team)
+      const ledger = open
+        ? `<ul class="ledger" id="ledger-${item.team}">${
+            detail.length
+              ? `${detail.map((line) => `<li><span>${esc(line.label)}</span><b>${signed(line.amount)}</b></li>`).join("")}<li class="sum"><span>Hand</span><b>${signed(item.delta)}</b></li>`
+              : `<li><span>No points this hand</span><b>+0</b></li>`
+          }</ul>`
+        : ""
+      return `<div class="score-block"><button type="button" class="row score-row" data-act="ledger" data-team="${item.team}" aria-expanded="${open}" aria-controls="ledger-${item.team}"><span><span class="chev" aria-hidden="true">${open ? "▾" : "▸"}</span><strong>${esc(item.name)}</strong>${open ? "" : `<br>${esc(bits.join(" · "))}`}</span><b>${signed(item.delta)}</b></button>${ledger}</div>`
     })
     .join("")
+}
+
+function summaryHtml() {
+  const hand = match.handSummary
+  const reason =
+    hand.reason === "out"
+      ? `${esc(hand.outName)} went out${hand.concealed ? " concealed" : ""}.`
+      : hand.reason === "red3"
+        ? "The last card of the stock was a red three."
+        : "The stock ran out."
   const nextOpen =
     match.rules === "house"
       ? `<p>The next hand opens at ${openingRequirement(0, { rules: "house", handNumber: hand.hand + 1 })}.</p>`
@@ -656,7 +674,7 @@ function summaryHtml() {
     <h2 id="sum-title">Hand ${hand.hand} of 4</h2>
     <p>${reason}</p>
     ${nextOpen}
-    ${lines}
+    ${handLedgerHtml(hand.lines)}
     <div class="actions">${titleButton()}<button type="button" data-act="close">Look at the table</button><button type="button" class="primary" data-act="next">Next hand</button></div>
   </section></div>`
 }
@@ -1234,6 +1252,7 @@ function leaveGame() {
   ui.log = false
   ui.options = false
   ui.handMelds = false
+  ui.ledger.clear()
   ui.error = ""
   ui.busy = false
   ui.summarize = false
@@ -1504,10 +1523,22 @@ function onClick(event) {
   if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), (ui.options = false), render())
   if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), (ui.options = false), render())
   if (act === "scores") return ((ui.modal = "scores"), (ui.options = false), render())
-  if (act === "close") return ((ui.modal = null), render())
+  if (act === "close") {
+    ui.ledger.clear()
+    ui.modal = null
+    render()
+    return
+  }
   if (act === "start" || act === "again") return startMatch()
   if (act === "title" || act === "lobby") return leaveGame()
   if (!match) return
+  if (act === "ledger") {
+    const team = Number(node.dataset.team)
+    if (ui.ledger.has(team)) ui.ledger.delete(team)
+    else ui.ledger.add(team)
+    render()
+    return
+  }
   if (act === "card") {
     const id = Number(node.dataset.id)
     if (ui.selected.has(id)) ui.selected.delete(id)
@@ -1569,6 +1600,7 @@ function onClick(event) {
   if (act === "decline") return doAction({ type: "decline" })
   if (act === "next") {
     ui.modal = null
+    ui.ledger.clear()
     doAction({ type: "next" })
   }
 }

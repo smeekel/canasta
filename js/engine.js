@@ -673,6 +673,49 @@ export function evaluateScores(state) {
   })
 }
 
+function meldNoun(rank) {
+  if (rank < 0) return "Wild cards"
+  if (rank === 3) return "Black threes"
+  const name = RANK_NAME[rank] || "Cards"
+  if (name === "Six") return "Sixes"
+  return `${name}s`
+}
+
+export function scoreBreakdown(state, teamId) {
+  const team = state.teams[teamId]
+  const items = []
+  for (const meld of team.melds) {
+    const noun = meldNoun(meld.rank)
+    if (meld.rank !== 3 && meld.cards.length >= 7) {
+      if (meld.rank < 0) items.push({ label: "Wild canasta", amount: WILD_CANASTA })
+      else if (meld.cards.some(isWild)) items.push({ label: `Mixed canasta of ${noun.toLowerCase()}`, amount: 300 })
+      else items.push({ label: `Pure canasta of ${noun.toLowerCase()}`, amount: 500 })
+    }
+    const points = meld.cards.reduce((sum, card) => sum + cardPoints(card), 0)
+    const count = meld.cards.length
+    items.push({ label: `${noun}, ${count} ${count === 1 ? "card" : "cards"}`, amount: points })
+  }
+  const opened = team.melds.length > 0
+  const reds = team.redThrees
+  const each = reds.length === packCount(state) * 2 && reds.length > 0 ? 200 : 100
+  const sign = opened ? 1 : -1
+  for (const card of reds) {
+    items.push({ label: `Red three of ${SUIT_NAME[card.suit]}`, amount: sign * each })
+  }
+  if (state.out && state.players[state.out.player].team === teamId) {
+    const concealed = !!state.out.concealed
+    items.push({ label: concealed ? "Going out concealed" : "Going out", amount: concealed ? 200 : 100 })
+  }
+  const mates = state.players.filter((player) => player.team === teamId)
+  const named = mates.length > 1
+  for (const player of mates) {
+    const who = named ? `${player.name}: ` : ""
+    for (const card of player.hand) items.push({ label: `${who}${cardName(card)} left in hand`, amount: -cardPoints(card) })
+    for (const card of player.foot || []) items.push({ label: `${who}${cardName(card)} left in the foot`, amount: -cardPoints(card) })
+  }
+  return items
+}
+
 function endHand(state, reason) {
   if (state.phase === "handEnd" || state.phase === "matchEnd") return
   const lines = evaluateScores(state).map((line) => {
