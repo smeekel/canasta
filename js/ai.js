@@ -147,11 +147,16 @@ function openingPlan(state, info = null) {
   return best
 }
 
+function pileIsWorth(state) {
+  if (footWaiting(state)) return state.discard.length >= 12
+  return state.discard.length >= 8
+}
+
 function worthLayoff(state, info) {
-  const meld = side(state).melds.find((item) => item.rank === info.top.rank)
+  const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
   if (!meld) return false
-  if (meld.cards.length >= 6) return true
-  return state.discard.length >= 3
+  if (meld.cards.length >= 6 && (!footWaiting(state) || state.discard.length <= 4)) return true
+  return pileIsWorth(state)
 }
 
 function pairGroup(state, info) {
@@ -167,8 +172,8 @@ function pairGroup(state, info) {
 function worthExtend(state, info) {
   const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
   if (!meld) return false
-  if (meld.cards.length + 3 >= 7) return true
-  return state.discard.length >= 3
+  if (meld.cards.length + 3 === 7 && (!footWaiting(state) || state.discard.length <= 4)) return true
+  return pileIsWorth(state)
 }
 
 function extendGroup(state, info) {
@@ -206,13 +211,14 @@ function takeAction(state) {
     return { type: "take", groups }
   }
   if (!side(state).opened) {
+    if (!pileIsWorth(state)) return null
     const plan = openingPlan(state, info)
     if (!plan) return null
     return { type: "take", groups: plan.groups }
   }
   const pile = state.discard.length
   const naturals = seat(state).hand.filter((card) => card.rank === info.top.rank).length
-  const attractive = pile >= 5 || (naturals >= 4 && pile >= 2) || (naturals >= 2 && pile >= 3)
+  const attractive = pileIsWorth(state) || (!footWaiting(state) && naturals >= 4 && pile >= 6)
   if (!attractive) return null
   const groups = pairGroup(state, info)
   if (!groups) return null
@@ -264,6 +270,11 @@ function houseAction(state) {
     const after = melds.concat([{ rank: WILD_RANK, cards: give }])
     if (place(give.length, after)) return { type: "meld", cardIds: give.map((card) => card.id) }
   }
+  if (!incomplete && wilds.length >= 3 && kinds.wild < 1) {
+    const give = wilds.slice(0, Math.min(7, wilds.length))
+    const after = melds.concat([{ rank: WILD_RANK, cards: give }])
+    if (place(give.length, after)) return { type: "meld", cardIds: give.map((card) => card.id) }
+  }
 
   for (const meld of melds) {
     if (meld.rank === 3 || meld.rank < 0 || meld.cards.some(isWild) || meld.cards.length >= 7) continue
@@ -306,6 +317,45 @@ function houseAction(state) {
       if (!place(3, melds.concat([{ rank, cards: cards.slice(0, 2).concat(wilds[0]) }]))) continue
       return { type: "meld", cardIds: [cards[0].id, cards[1].id, wilds[0].id] }
     }
+  }
+  return null
+}
+
+function playDown(state) {
+  if (state.rules !== "house" || !side(state).opened) return null
+  const hand = seat(state).hand
+  const melds = side(state).melds
+  let best = null
+  for (const meld of melds) {
+    if (meld.rank === 3 || meld.rank < 0 || meld.cards.length >= 5) continue
+    const naturals = hand.filter((card) => card.rank === meld.rank).slice(0, 7 - meld.cards.length)
+    if (naturals.length < 1 || naturals.length >= 3) continue
+    if (meld.cards.length + naturals.length >= 7) continue
+    if (!describeMeld(meld.cards.concat(naturals), false, true).ok) continue
+    if (!canPlace(state, naturals.length, false)) continue
+    const score = naturals.length * 10 + meld.cards.length
+    if (!best || score > best.score) {
+      best = { score, action: { type: "layoff", cardIds: naturals.map((card) => card.id), rank: meld.rank } }
+    }
+  }
+  return best?.action || null
+}
+
+function footPush(state) {
+  if (!footWaiting(state) || !side(state).opened) return null
+  const hand = seat(state).hand
+  const melds = side(state).melds
+  const wilds = hand.filter(isWild)
+  if (!wilds.length) return null
+  const reserve = canastaBreakdown(melds).wild >= 1 || melds.some((meld) => meld.rank < 0 && meld.cards.length < 7) ? 0 : 3
+  for (const [rank, cards] of naturalsOf(hand)) {
+    if (cards.length !== 2 || melds.some((meld) => meld.rank === rank && meld.cards.length < 7)) continue
+    const chosen = [cards[0], cards[1], wilds[0]]
+    if (!describeMeld(chosen, false, true).ok) continue
+    const left = hand.length - chosen.length
+    if (wilds.length - 1 < reserve && left > 1) continue
+    if (!canPlace(state, chosen.length, false)) continue
+    return { type: "meld", cardIds: chosen.map((card) => card.id) }
   }
   return null
 }
@@ -408,7 +458,7 @@ function playMelds(sim, step) {
   }
   for (let guard = 0; guard < 20; guard++) {
     if (sim.phase !== "meld") return
-    const action = houseAction(sim) || nextImprovement(sim) || (shouldDump(sim) ? dumpAction(sim) : null)
+    const action = houseAction(sim) || playDown(sim) || footPush(sim) || nextImprovement(sim) || (shouldDump(sim) ? dumpAction(sim) : null)
     if (!action) return
     if (!step(action).ok) return
   }

@@ -86,6 +86,10 @@ export function topScores(db, limit = 10) {
     }))
 }
 
+export function gamesPlayed(db) {
+  return Number(db.prepare("SELECT COUNT(*) AS played FROM scores").get().played) || 0
+}
+
 export function storedScores(db) {
   return db.prepare("SELECT name, score, rules, opponents, finished_at, ip, browser, origin FROM scores ORDER BY id").all()
 }
