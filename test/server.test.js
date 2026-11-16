@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { fetchScores, flushOutbox, queueScore, readOutbox } from "../js/scores.js"
-import { addScore, openScores, storedScores, topScores } from "../script/db.mjs"
+import { addScore, gamesPlayed, openScores, storedScores, topScores } from "../script/db.mjs"
 import { clientAddress, startServer } from "../server.mjs"
 
 function memory() {
@@ -44,6 +44,7 @@ test("a finished game is stored with address and browser and the board stays pub
     assert.deepEqual(body.scores, [
       { name: "Ada", score: 4200, rules: "house", opponents: 2, when: "2026-10-12T06:50:00.000Z" },
     ])
+    assert.equal(body.played, 1)
     assert.equal(JSON.stringify(body).includes("127.0.0.1"), false)
     assert.equal(JSON.stringify(body).includes("CanastaTest"), false)
     const [row] = storedScores(server.db)
@@ -83,7 +84,8 @@ test("a score that failed to post is sent on the next visit", async () => {
     assert.equal(row.origin, "game")
     assert.equal(row.ip, "127.0.0.1")
     const seen = await fetchScores()
-    assert.equal(seen.some((entry) => "ip" in entry || "browser" in entry), false)
+    assert.equal(seen.scores.some((entry) => "ip" in entry || "browser" in entry), false)
+    assert.equal(seen.played, 1)
     const gone = await fetch(`http://127.0.0.1:${port}/api/scores/migrate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -150,6 +152,7 @@ test("only the ten highest scores are listed", () => {
     assert.equal(board.length, 10)
     assert.equal(board[0].score, 12)
     assert.equal(board[9].score, 3)
+    assert.equal(gamesPlayed(db), 12)
     assert.equal(storedScores(db)[0].ip, "203.0.113.4")
   } finally {
     db.close()

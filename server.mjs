@@ -2,7 +2,7 @@ import { createServer } from "node:http"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize, sep } from "node:path"
 import { fileURLToPath } from "node:url"
-import { addScore, openScores, rememberProfile, topScores } from "./script/db.mjs"
+import { addScore, gamesPlayed, openScores, rememberProfile, topScores } from "./script/db.mjs"
 
 const root = fileURLToPath(new URL(".", import.meta.url)).replace(new RegExp(`${sep === "\\" ? "\\\\" : sep}$`), "") || sep
 const defaultDb = join(root, "data", "canasta.sqlite")
@@ -106,7 +106,7 @@ export function startServer({ port = 8080, host = "127.0.0.1", dbPath = defaultD
     const browser = clientBrowser(request)
     try {
       if (url.pathname === "/api/scores" && request.method === "GET") {
-        sendJson(response, 200, { scores: topScores(db) })
+        sendJson(response, 200, { scores: topScores(db), played: gamesPlayed(db) })
         return
       }
       if (url.pathname === "/api/scores" && request.method === "POST") {

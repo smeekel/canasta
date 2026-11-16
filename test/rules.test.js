@@ -903,6 +903,92 @@ test("a finished wild canasta can be followed by another", () => {
   assert.equal(state.phase, "meld")
 })
 
+test("the AI leaves a short discard pile", () => {
+  const state = houseDeal(1, 5)
+  const sevens = extract(state, (card) => card.rank === 7, 6)
+  const buried = extract(state, (card) => card.rank === 9, 7)
+  const junk = extract(state, (card) => [4, 5, 6, 8].includes(card.rank), 4)
+  const stock = extract(state, (card) => card.rank === 10, 6)
+  const foot = extract(state, (card) => card.rank === 12, 13)
+  scoop(state)
+  state.stock = stock
+  state.players[1].hand = [...sevens.slice(0, 2), ...junk]
+  state.players[1].foot = []
+  state.teams[1].opened = true
+  state.teams[1].melds = [{ rank: 7, cards: sevens.slice(2, 5) }]
+  state.discard = [...buried.slice(0, 3), sevens[5]]
+  setTurn(state, 1)
+  const left = planTurn(state)
+  assert.equal(left.ok, true, left.error)
+  assert.equal(left.actions[0].type, "draw")
+
+  state.players[1].foot = foot
+  state.discard = [...buried, sevens[5]]
+  const waiting = planTurn(state)
+  assert.equal(waiting.ok, true, waiting.error)
+  assert.equal(waiting.actions[0].type, "draw")
+
+  state.players[1].foot = []
+  const taken = planTurn(state)
+  assert.equal(taken.ok, true, taken.error)
+  assert.equal(taken.actions[0].type, "take")
+})
+
+test("the AI still takes a discard that finishes a canasta", () => {
+  const state = houseDeal(1, 6)
+  const sevens = extract(state, (card) => card.rank === 7, 7)
+  const junk = extract(state, (card) => card.rank === 4, 4)
+  const stock = extract(state, (card) => card.rank === 10, 4)
+  scoop(state)
+  state.stock = stock
+  state.players[1].hand = [...sevens.slice(0, 2), ...junk]
+  state.players[1].foot = []
+  state.teams[1].opened = true
+  state.teams[1].melds = [{ rank: 7, cards: sevens.slice(2, 6) }]
+  state.discard = [sevens[6]]
+  setTurn(state, 1)
+  const plan = planTurn(state)
+  assert.equal(plan.ok, true, plan.error)
+  assert.equal(plan.actions[0].type, "take")
+})
+
+test("the AI plays the hand down and picks up the foot", () => {
+  const state = houseDeal(1, 4)
+  const kings = extract(state, (card) => card.rank === 13, 6)
+  const sevens = extract(state, (card) => card.rank === 7, 3)
+  const eights = extract(state, (card) => card.rank === 8, 3)
+  const ace = extract(state, (card) => card.rank === 1, 1)[0]
+  const foot = extract(state, (card) => card.rank >= 4 && card.rank <= 11, 13)
+  scoop(state)
+  state.players[1].hand = [...kings.slice(0, 2), ...sevens, ...eights, ace]
+  state.players[1].foot = foot
+  state.teams[1].opened = true
+  state.teams[1].melds = [{ rank: 13, cards: kings.slice(2) }]
+  asMeld(state, 1)
+  const plan = planTurn(state)
+  assert.equal(plan.ok, true, plan.error)
+  for (const action of plan.actions) act(state, action)
+  assert.equal(state.players[1].foot.length, 0)
+  assert.equal(state.players[1].hand.length, 13)
+})
+
+test("the AI starts a wild meld so the foot can be finished", () => {
+  const state = houseDeal(1, 8)
+  const wilds = extract(state, (card) => card.rank === 2, 3)
+  const junk = extract(state, (card) => card.rank === 9, 4)
+  const fours = extract(state, (card) => card.rank === 4, 3)
+  scoop(state)
+  state.players[1].hand = [...wilds, ...junk]
+  state.players[1].foot = []
+  state.teams[1].opened = true
+  state.teams[1].melds = [{ rank: 4, cards: fours }]
+  asMeld(state, 1)
+  const plan = planTurn(state)
+  assert.equal(plan.ok, true, plan.error)
+  for (const action of plan.actions) act(state, action)
+  assert.ok(state.teams[1].melds.some((meld) => meld.rank < 0 && meld.cards.length >= 3))
+})
+
 test("AI finishes a house-rules game", () => {
   for (const opponents of [1, 2, 3]) {
     const state = createMatch({ opponents, seed: opponents + 3, rules: "house" })

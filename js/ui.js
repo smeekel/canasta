@@ -92,6 +92,7 @@ const ui = {
   handScroll: 0,
   board: null,
   boardNote: "",
+  played: null,
 }
 
 let match = null
@@ -758,6 +759,12 @@ function topScoresHtml() {
   return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2><p class="score-note">Shared by everyone who finishes a match.</p>${rows}</section>`
 }
 
+function gamesPlayedHtml() {
+  if (!Number.isInteger(ui.played)) return ""
+  const noun = ui.played === 1 ? "game" : "games"
+  return `<p class="games-played">${ui.played.toLocaleString("en-US")} ${noun} played</p>`
+}
+
 function nameField() {
   return `<label class="player-name"><span>Your name</span><input type="text" maxlength="${NAME_LIMIT}" placeholder="Anonymous" value="${esc(ui.name)}" data-act="name" autocomplete="nickname" aria-label="Your name. Leave blank to play as Anonymous."></label>`
 }
@@ -799,6 +806,7 @@ function lobbyHtml() {
     </div>
     ${versionButton()}
     ${topScoresHtml()}
+    ${gamesPlayedHtml()}
   </section></main>`
 }
 
@@ -1229,7 +1237,9 @@ function rememberScore() {
 async function syncBoard() {
   try {
     await flushOutbox(localStorage)
-    ui.board = await fetchScores()
+    const board = await fetchScores()
+    ui.board = board.scores
+    ui.played = board.played
     ui.boardNote = ""
   } catch {
     if (!ui.board) ui.board = []

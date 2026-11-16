@@ -91,7 +91,9 @@ export async function fetchScores() {
   const response = await fetch("/api/scores", { cache: "no-store" })
   if (!response.ok) throw new Error("Scores could not be loaded.")
   const body = await response.json()
-  return Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
+  const scores = Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
+  const played = Number.isInteger(body.played) && body.played >= 0 ? body.played : scores.length
+  return { scores, played }
 }
 
 export async function flushOutbox(storage) {
