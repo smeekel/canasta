@@ -87,7 +87,8 @@ export function topScores(db, limit = 10) {
 }
 
 export function gamesPlayed(db) {
-  return Number(db.prepare("SELECT COUNT(*) AS played FROM scores").get().played) || 0
+  const played = Number(db.prepare("SELECT COUNT(*) AS played FROM scores").get().played)
+  return Number.isSafeInteger(played) && played >= 0 ? played : 0
 }
 
 export function storedScores(db) {
