@@ -92,8 +92,8 @@ export async function fetchScores() {
   if (!response.ok) throw new Error("Scores could not be loaded.")
   const body = await response.json()
   const scores = Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
-  const played = Number.isInteger(body.played) && body.played >= 0 ? body.played : scores.length
-  return { scores, played }
+  const played = Number(body.played)
+  return { scores, played: Number.isInteger(played) && played >= 0 ? played : null }
 }
 
 export async function flushOutbox(storage) {

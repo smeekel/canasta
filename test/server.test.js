@@ -137,6 +137,45 @@ test("only a loopback proxy may supply the visitor address", () => {
   assert.equal(clientAddress("::ffff:203.0.113.50", {}), "203.0.113.50")
 })
 
+test("the games played count is every score stored, past the ten on the board", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canasta-played-"))
+  const server = startServer({ port: 0, host: "127.0.0.1", dbPath: join(dir, "scores.sqlite") })
+  const previous = globalThis.fetch
+  try {
+    await listen(server)
+    const port = server.address().port
+    globalThis.fetch = (url, options) => previous(new URL(url, `http://127.0.0.1:${port}`), options)
+    for (let score = 1; score <= 12; score++) {
+      const posted = await fetch(`http://127.0.0.1:${port}/api/scores`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Ada",
+          score,
+          rules: "house",
+          opponents: 1,
+          when: `2026-02-${String(score).padStart(2, "0")}T00:00:00.000Z`,
+        }),
+      })
+      assert.equal(posted.status, 201)
+    }
+    const listed = await fetch(`http://127.0.0.1:${port}/api/scores`)
+    const body = await listed.json()
+    assert.equal(body.scores.length, 10)
+    assert.equal(body.played, 12)
+    assert.equal(JSON.stringify(body).includes("127.0.0.1"), false)
+    const seen = await fetchScores()
+    assert.equal(seen.scores.length, 10)
+    assert.equal(seen.played, 12)
+    assert.equal(gamesPlayed(server.db), 12)
+  } finally {
+    globalThis.fetch = previous
+    await new Promise((resolve) => server.close(resolve))
+    server.db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("only the ten highest scores are listed", () => {
   const dir = mkdtempSync(join(tmpdir(), "canasta-top-"))
   const db = openScores(join(dir, "scores.sqlite"))
