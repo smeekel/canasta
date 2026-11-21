@@ -11,6 +11,7 @@ import {
   describeMeld,
   discardInfo,
   freezeCard,
+  houseFlags,
   isBlackThree,
   isNatural,
   isWild,
@@ -87,6 +88,8 @@ const ui = {
   log: false,
   options: false,
   assist: savedOptions.assist,
+  showFoot: savedOptions.foot,
+  showGoOut: savedOptions.goOut,
   handMelds: false,
   ledger: new Set(),
   handScroll: 0,
@@ -181,6 +184,16 @@ function meldView(meld, mine, pick, extending = false) {
   return `<div class="${classes}"${attrs}${title} ${anchor}>${cards}${badge}${add}</div>`
 }
 
+function playerFlags(player) {
+  const status = houseFlags(match, player)
+  const chips = []
+  if (ui.showFoot && status.inFoot) chips.push(`<span class="flag foot">In foot</span>`)
+  if (ui.showGoOut && status.canGoOut) chips.push(`<span class="flag out">Can go out</span>`)
+  if (!chips.length) return ""
+  const tone = status.canGoOut && ui.showGoOut ? " out" : " foot"
+  return `<div class="flags${tone}">${chips.join("")}</div>`
+}
+
 function seatView(index) {
   const player = match.players[index]
   const active = match.turn === index && (match.phase === "draw" || match.phase === "meld")
@@ -189,6 +202,7 @@ function seatView(index) {
   const foot = player.foot?.length ? ` · foot ${player.foot.length}` : ""
   return `<article class="seat${active ? " active" : ""}" data-anchor="seat-${index}">
     <div class="who"><strong>${esc(label)}</strong><span>${player.hand.length}${foot}</span></div>
+    ${playerFlags(player)}
     ${backs(player.hand.length)}
   </article>`
 }
@@ -864,6 +878,7 @@ function tableHtml() {
     ${foot}
     ${go}
     <div class="hand-area">
+      ${playerFlags(me())}
       <button type="button" class="hand-info" data-act="hand-melds" aria-expanded="${ui.handMelds}" aria-label="Possible melds" title="Possible melds">${infoIcon()}</button>
       <div class="hand-scroll"><div class="hand${hand.length > 12 ? " tight" : ""}" data-anchor="hand">${cards}</div></div>
       ${handMeldFlyout()}
@@ -901,6 +916,10 @@ function optionsFlyout() {
     <button type="button" class="assist-toggle" data-act="assist" aria-pressed="${ui.assist}"><span class="switch${ui.assist ? " on" : ""}" aria-hidden="true"></span><span>Player assist</span></button>
     <p class="assist-key"><span class="swatch add" aria-hidden="true"></span>Blue cards can be added to a meld.</p>
     <p class="assist-key"><span class="swatch fresh" aria-hidden="true"></span>Amber cards can start a new meld.</p>
+    <button type="button" class="assist-toggle" data-act="foot-mark" aria-pressed="${ui.showFoot}"><span class="switch${ui.showFoot ? " on" : ""}" aria-hidden="true"></span><span>In the foot</span></button>
+    <p class="assist-note">A mark when a player has picked up their foot.</p>
+    <button type="button" class="assist-toggle" data-act="go-out-mark" aria-pressed="${ui.showGoOut}"><span class="switch${ui.showGoOut ? " on" : ""}" aria-hidden="true"></span><span>Can go out</span></button>
+    <p class="assist-note">A mark when they are in the foot with a pure, a mixed, and a wild canasta.</p>
     <p class="assist-note">Kept in this browser.</p>
   </aside>`
 }
@@ -1474,7 +1493,7 @@ function onClick(event) {
   const node = event.target.closest("[data-act], [data-opponents], [data-rules]")
   if (!node) return
   const act = node.dataset.act
-  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "options" && act !== "assist" && act !== "hand-melds") return
+  if (ui.busy && act !== "about" && act !== "close" && act !== "title" && act !== "options" && act !== "assist" && act !== "foot-mark" && act !== "go-out-mark" && act !== "hand-melds") return
   if (node.dataset.opponents) {
     ui.opponents = Number(node.dataset.opponents)
     render()
@@ -1515,9 +1534,11 @@ function onClick(event) {
     render()
     return
   }
-  if (act === "assist") {
-    ui.assist = !ui.assist
-    writeOptions(localStorage, { assist: ui.assist })
+  if (act === "assist" || act === "foot-mark" || act === "go-out-mark") {
+    if (act === "assist") ui.assist = !ui.assist
+    if (act === "foot-mark") ui.showFoot = !ui.showFoot
+    if (act === "go-out-mark") ui.showGoOut = !ui.showGoOut
+    writeOptions(localStorage, { assist: ui.assist, foot: ui.showFoot, goOut: ui.showGoOut })
     render()
     return
   }
