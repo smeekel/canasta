@@ -148,14 +148,18 @@ function openingPlan(state, info = null) {
 }
 
 function pileIsWorth(state) {
-  if (footWaiting(state)) return state.discard.length >= 12
-  return state.discard.length >= 8
+  if (footWaiting(state)) return false
+  return state.discard.length >= 16
+}
+
+function shortFinish(state) {
+  return state.discard.length <= 3
 }
 
 function worthLayoff(state, info) {
   const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
   if (!meld) return false
-  if (meld.cards.length >= 6 && (!footWaiting(state) || state.discard.length <= 4)) return true
+  if (meld.cards.length >= 6 && shortFinish(state)) return true
   return pileIsWorth(state)
 }
 
@@ -172,7 +176,7 @@ function pairGroup(state, info) {
 function worthExtend(state, info) {
   const meld = side(state).melds.find((item) => item.rank === info.top.rank && item.cards.length < 7)
   if (!meld) return false
-  if (meld.cards.length + 3 === 7 && (!footWaiting(state) || state.discard.length <= 4)) return true
+  if (meld.cards.length + 3 === 7 && shortFinish(state)) return true
   return pileIsWorth(state)
 }
 
@@ -216,10 +220,7 @@ function takeAction(state) {
     if (!plan) return null
     return { type: "take", groups: plan.groups }
   }
-  const pile = state.discard.length
-  const naturals = seat(state).hand.filter((card) => card.rank === info.top.rank).length
-  const attractive = pileIsWorth(state) || (!footWaiting(state) && naturals >= 4 && pile >= 6)
-  if (!attractive) return null
+  if (!pileIsWorth(state)) return null
   const groups = pairGroup(state, info)
   if (!groups) return null
   return { type: "take", groups }
