@@ -11,6 +11,7 @@ import {
   describeMeld,
   discardInfo,
   evaluateScores,
+  houseFlags,
   scoreBreakdown,
   isBlackThree,
   possibleMelds,
@@ -907,6 +908,7 @@ test("the AI leaves a short discard pile", () => {
   const state = houseDeal(1, 5)
   const sevens = extract(state, (card) => card.rank === 7, 6)
   const buried = extract(state, (card) => card.rank === 9, 7)
+  const extra = extract(state, (card) => card.rank === 11, 8)
   const junk = extract(state, (card) => [4, 5, 6, 8].includes(card.rank), 4)
   const stock = extract(state, (card) => card.rank === 10, 6)
   const foot = extract(state, (card) => card.rank === 12, 13)
@@ -929,6 +931,11 @@ test("the AI leaves a short discard pile", () => {
   assert.equal(waiting.actions[0].type, "draw")
 
   state.players[1].foot = []
+  const modest = planTurn(state)
+  assert.equal(modest.ok, true, modest.error)
+  assert.equal(modest.actions[0].type, "draw")
+
+  state.discard = [...buried, ...extra, sevens[5]]
   const taken = planTurn(state)
   assert.equal(taken.ok, true, taken.error)
   assert.equal(taken.actions[0].type, "take")
@@ -939,6 +946,7 @@ test("the AI still takes a discard that finishes a canasta", () => {
   const sevens = extract(state, (card) => card.rank === 7, 7)
   const junk = extract(state, (card) => card.rank === 4, 4)
   const stock = extract(state, (card) => card.rank === 10, 4)
+  const buried = extract(state, (card) => card.rank === 9, 7)
   scoop(state)
   state.stock = stock
   state.players[1].hand = [...sevens.slice(0, 2), ...junk]
@@ -950,6 +958,33 @@ test("the AI still takes a discard that finishes a canasta", () => {
   const plan = planTurn(state)
   assert.equal(plan.ok, true, plan.error)
   assert.equal(plan.actions[0].type, "take")
+
+  state.discard = [...buried, sevens[6]]
+  const wide = planTurn(state)
+  assert.equal(wide.ok, true, wide.error)
+  assert.equal(wide.actions[0].type, "draw")
+})
+
+test("house flags mark a picked-up foot and a player who can go out", () => {
+  const state = houseDeal(1, 9)
+  assert.deepEqual(houseFlags(state, state.players[1]), { inFoot: false, canGoOut: false })
+  state.players[1].foot = []
+  assert.deepEqual(houseFlags(state, state.players[1]), { inFoot: true, canGoOut: false })
+  const pure = extract(state, (card) => card.rank === 4, 7)
+  const mixed = extract(state, (card) => card.rank === 5, 6)
+  const wild = extract(state, (card) => card.rank === 2, 1)[0]
+  const wilds = extract(state, (card) => card.rank === 0 || card.rank === 2, 7)
+  state.teams[1].melds = [
+    { rank: 4, cards: pure },
+    { rank: 5, cards: [...mixed, wild] },
+    { rank: -1, cards: wilds },
+  ]
+  assert.deepEqual(houseFlags(state, state.players[1]), { inFoot: true, canGoOut: true })
+  state.players[1].foot = extract(state, (card) => card.rank === 8, 4)
+  assert.deepEqual(houseFlags(state, state.players[1]), { inFoot: false, canGoOut: false })
+  const classic = fresh(1, 3)
+  classic.players[1].foot = []
+  assert.deepEqual(houseFlags(classic, classic.players[1]), { inFoot: false, canGoOut: false })
 })
 
 test("the AI plays the hand down and picks up the foot", () => {

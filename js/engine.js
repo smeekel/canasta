@@ -161,6 +161,11 @@ export function meetsGoOut(state, melds) {
   return tally.pure >= 1 && tally.mixed >= 1 && tally.wild >= 1
 }
 
+export function houseFlags(state, player) {
+  if (!isHouse(state) || !player || state.handNumber < 1 || player.foot?.length) return { inFoot: false, canGoOut: false }
+  return { inFoot: true, canGoOut: meetsGoOut(state, state.teams[player.team].melds) }
+}
+
 export function sideName(state, teamId) {
   if (!isHouse(state) && state.playerCount === 4) {
     const mates = state.players.filter((player) => player.team === teamId)
