@@ -930,7 +930,13 @@ test("the AI leaves a short discard pile", () => {
   assert.equal(waiting.ok, true, waiting.error)
   assert.equal(waiting.actions[0].type, "draw")
 
+  state.discard = [...buried, ...extra.slice(0, 6), sevens[5]]
+  const deepWaiting = planTurn(state)
+  assert.equal(deepWaiting.ok, true, deepWaiting.error)
+  assert.equal(deepWaiting.actions[0].type, "take")
+
   state.players[1].foot = []
+  state.discard = [...buried, sevens[5]]
   const modest = planTurn(state)
   assert.equal(modest.ok, true, modest.error)
   assert.equal(modest.actions[0].type, "draw")
