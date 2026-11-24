@@ -148,12 +148,11 @@ function openingPlan(state, info = null) {
 }
 
 function pileIsWorth(state) {
-  if (footWaiting(state)) return false
-  return state.discard.length >= 16
+  return state.discard.length >= 14
 }
 
 function shortFinish(state) {
-  return state.discard.length <= 3
+  return state.discard.length <= 5
 }
 
 function worthLayoff(state, info) {
