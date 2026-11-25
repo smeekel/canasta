@@ -94,6 +94,9 @@ const ui = {
   ledger: new Set(),
   handScroll: 0,
   board: null,
+  boardAll: null,
+  boardMine: null,
+  boardTab: "version",
   boardNote: "",
   played: null,
 }
@@ -758,8 +761,35 @@ function scoreWhen(entry) {
   return `<time datetime="${esc(entry.when)}">${esc(label)}</time>`
 }
 
+function activeBoard() {
+  if (ui.boardTab === "mine") return ui.boardMine
+  if (ui.boardTab === "all") return ui.boardAll
+  return ui.board
+}
+
+function boardCopy() {
+  if (ui.boardTab === "mine") {
+    return { note: "Your ten best scores, from every version.", empty: "You have not posted a score yet." }
+  }
+  if (ui.boardTab === "all") {
+    return { note: "Best scores from every version of the game.", empty: "Finish a match to post a score." }
+  }
+  return { note: `Best scores on version ${revision}.`, empty: "No scores on this version yet." }
+}
+
 function topScoresHtml() {
-  const scores = ui.board
+  const scores = activeBoard()
+  const copy = boardCopy()
+  const tabs = [
+    ["version", "This version"],
+    ["mine", "Yours"],
+    ["all", "All versions"],
+  ]
+    .map(
+      ([id, label]) =>
+        `<button type="button" role="tab" data-act="board" data-board="${id}" aria-selected="${ui.boardTab === id}" class="${ui.boardTab === id ? "on" : ""}">${label}</button>`
+    )
+    .join("")
   const rows = !scores
     ? `<p class="empty-note">${esc(ui.boardNote || "Loading scores…")}</p>`
     : scores.length
@@ -769,8 +799,8 @@ function topScoresHtml() {
               `<li><span class="mark">${medalMarkup(index + 1)}</span><span class="who">${esc(entry.name)}<span class="meta">${esc(scoreMeta(entry))}</span>${scoreWhen(entry)}</span><b>${entry.score}</b></li>`
           )
           .join("")}</ol>`
-      : `<p class="empty-note">${esc(ui.boardNote || "Finish a match to post a score.")}</p>`
-  return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2><p class="score-note">Shared by everyone who finishes a match.</p>${rows}</section>`
+      : `<p class="empty-note">${esc(ui.boardNote || copy.empty)}</p>`
+  return `<section class="top-scores" aria-label="Top scores"><h2>Top scores</h2><div class="board-tabs" role="tablist" aria-label="Score boards">${tabs}</div><p class="score-note">${esc(copy.note)}</p>${rows}</section>`
 }
 
 function gamesPlayedHtml() {
@@ -1258,10 +1288,14 @@ async function syncBoard() {
     await flushOutbox(localStorage)
     const board = await fetchScores()
     ui.board = board.scores
+    ui.boardAll = board.all
+    ui.boardMine = board.mine
     ui.played = board.played
     ui.boardNote = ""
   } catch {
     if (!ui.board) ui.board = []
+    if (!ui.boardAll) ui.boardAll = []
+    if (!ui.boardMine) ui.boardMine = []
     ui.boardNote = "Scores could not be loaded."
   }
   if (ui.screen === "lobby") render()
@@ -1554,6 +1588,12 @@ function onClick(event) {
   if (act === "about") return ((ui.modal = ui.modal === "about" ? null : "about"), (ui.values = false), (ui.log = false), (ui.options = false), render())
   if (act === "rules") return ((ui.modal = "rules"), (ui.values = false), (ui.log = false), (ui.options = false), render())
   if (act === "scores") return ((ui.modal = "scores"), (ui.options = false), render())
+  if (act === "board") {
+    const tab = node.dataset.board
+    if (tab === "version" || tab === "mine" || tab === "all") ui.boardTab = tab
+    render()
+    return
+  }
   if (act === "close") {
     ui.ledger.clear()
     ui.modal = null
