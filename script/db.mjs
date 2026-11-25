@@ -1,7 +1,10 @@
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { normalizeScore } from "../js/scores.js"
+import { normalizeScore, playingName } from "../js/scores.js"
+import { revision } from "../js/version.js"
+
+export { revision as scoreRevision }
 
 const SCORE_LIMIT = 1000000
 
@@ -19,6 +22,7 @@ export function openScores(file) {
       ip TEXT NOT NULL,
       browser TEXT NOT NULL,
       origin TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '',
       UNIQUE (name, score, rules, opponents, finished_at)
     );
     CREATE TABLE IF NOT EXISTS profiles (
@@ -29,6 +33,10 @@ export function openScores(file) {
       PRIMARY KEY (ip, browser)
     );
   `)
+  const columns = db.prepare("PRAGMA table_info(scores)").all()
+  if (!columns.some((column) => column.name === "version")) {
+    db.exec("ALTER TABLE scores ADD COLUMN version TEXT NOT NULL DEFAULT ''")
+  }
   return db
 }
 
@@ -52,8 +60,8 @@ export function addScore(db, entry, { ip = "", browser = "", origin = "game" } =
   if (!clean || Math.abs(clean.score) > SCORE_LIMIT) return false
   const info = db
     .prepare(
-      `INSERT OR IGNORE INTO scores (name, score, rules, opponents, finished_at, ip, browser, origin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO scores (name, score, rules, opponents, finished_at, ip, browser, origin, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       clean.name,
@@ -63,20 +71,33 @@ export function addScore(db, entry, { ip = "", browser = "", origin = "game" } =
       finishedAt(clean.when),
       String(ip).slice(0, 80),
       String(browser).slice(0, 300),
-      origin === "browser" ? "browser" : "game"
+      origin === "browser" ? "browser" : "game",
+      revision
     )
   return info.changes > 0
 }
 
-export function topScores(db, limit = 10) {
+function listScores(db, { version, name, limit = 10 } = {}) {
+  const where = []
+  const params = []
+  if (version) {
+    where.push("version = ?")
+    params.push(version)
+  }
+  if (name) {
+    where.push("name = ?")
+    params.push(name)
+  }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : ""
   return db
     .prepare(
       `SELECT name, score, rules, opponents, finished_at
        FROM scores
+       ${clause}
        ORDER BY score DESC, finished_at DESC, id DESC
        LIMIT ?`
     )
-    .all(limit)
+    .all(...params, limit)
     .map((row) => ({
       name: row.name,
       score: row.score,
@@ -86,11 +107,25 @@ export function topScores(db, limit = 10) {
     }))
 }
 
+export function topScores(db, limit = 10) {
+  return listScores(db, { version: revision, limit })
+}
+
+export function topScoresAll(db, limit = 10) {
+  return listScores(db, { limit })
+}
+
+export function topScoresMine(db, name, limit = 10) {
+  return listScores(db, { name: playingName(name), limit })
+}
+
 export function gamesPlayed(db) {
   const played = Number(db.prepare("SELECT COUNT(*) AS played FROM scores").get().played)
   return Number.isSafeInteger(played) && played >= 0 ? played : 0
 }
 
 export function storedScores(db) {
-  return db.prepare("SELECT name, score, rules, opponents, finished_at, ip, browser, origin FROM scores ORDER BY id").all()
+  return db
+    .prepare("SELECT name, score, rules, opponents, finished_at, ip, browser, origin, version FROM scores ORDER BY id")
+    .all()
 }

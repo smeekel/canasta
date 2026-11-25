@@ -87,13 +87,23 @@ export async function postScore(entry) {
   return response.json()
 }
 
-export async function fetchScores() {
-  const response = await fetch("/api/scores", { cache: "no-store" })
+function scoreList(value) {
+  return Array.isArray(value) ? value.map(normalizeScore).filter(Boolean) : []
+}
+
+export async function fetchScores(name = "") {
+  const query = new URLSearchParams({ name: playingName(name) })
+  const response = await fetch(`/api/scores?${query}`, { cache: "no-store" })
   if (!response.ok) throw new Error("Scores could not be loaded.")
   const body = await response.json()
-  const scores = Array.isArray(body.scores) ? body.scores.map(normalizeScore).filter(Boolean) : []
   const played = Number(body.played)
-  return { scores, played: Number.isInteger(played) && played >= 0 ? played : null }
+  return {
+    scores: scoreList(body.scores),
+    all: scoreList(body.all),
+    mine: scoreList(body.mine),
+    played: Number.isInteger(played) && played >= 0 ? played : null,
+    version: typeof body.version === "string" ? body.version : "",
+  }
 }
 
 export async function flushOutbox(storage) {

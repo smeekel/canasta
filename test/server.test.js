@@ -2,9 +2,10 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import test from "node:test"
 import { fetchScores, flushOutbox, queueScore, readOutbox } from "../js/scores.js"
-import { addScore, gamesPlayed, openScores, storedScores, topScores } from "../script/db.mjs"
+import { addScore, gamesPlayed, openScores, scoreRevision, storedScores, topScores, topScoresAll, topScoresMine } from "../script/db.mjs"
 import { clientAddress, startServer } from "../server.mjs"
 
 function memory() {
@@ -51,6 +52,12 @@ test("a finished game is stored with address and browser and the board stays pub
     assert.equal(row.ip, "127.0.0.1")
     assert.equal(row.browser, "CanastaTest/1.0")
     assert.equal(row.origin, "game")
+    assert.equal(row.version, scoreRevision)
+    assert.equal(body.version, scoreRevision)
+    assert.deepEqual(body.all, body.scores)
+    assert.deepEqual(body.mine, [])
+    const named = await fetch(`http://127.0.0.1:${port}/api/scores?name=${encodeURIComponent(" Ada ")}`)
+    assert.deepEqual((await named.json()).mine, body.scores)
     const profile = server.db.prepare("SELECT name, ip, browser FROM profiles").get()
     assert.equal(profile.name, "Ada")
     assert.equal(profile.ip, "127.0.0.1")
@@ -193,8 +200,102 @@ test("only the ten highest scores are listed", () => {
     assert.equal(board[9].score, 3)
     assert.equal(gamesPlayed(db), 12)
     assert.equal(storedScores(db)[0].ip, "203.0.113.4")
+    assert.equal(storedScores(db)[0].version, scoreRevision)
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("startup adds a version column and leaves older scores off the current board", () => {
+  const dir = mkdtempSync(join(tmpdir(), "canasta-migrate-"))
+  const file = join(dir, "scores.sqlite")
+  const raw = new DatabaseSync(file)
+  raw.exec(`
+    CREATE TABLE scores (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      rules TEXT NOT NULL,
+      opponents INTEGER NOT NULL,
+      finished_at TEXT NOT NULL,
+      ip TEXT NOT NULL,
+      browser TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      UNIQUE (name, score, rules, opponents, finished_at)
+    )
+  `)
+  raw
+    .prepare(
+      `INSERT INTO scores (name, score, rules, opponents, finished_at, ip, browser, origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run("Ada", 900, "house", 1, "2026-01-01T00:00:00.000Z", "203.0.113.9", "OldBrowser/1", "game")
+  raw.close()
+  const db = openScores(file)
+  try {
+    const names = db.prepare("PRAGMA table_info(scores)").all().map((column) => column.name)
+    assert.equal(names.includes("version"), true)
+    assert.equal(storedScores(db)[0].version, "")
+    assert.equal(topScores(db).length, 0)
+    assert.equal(topScoresAll(db)[0].score, 900)
+    assert.equal(topScoresMine(db, "Ada")[0].name, "Ada")
+    assert.equal(topScoresMine(db, " Ada ")[0].name, "Ada")
+    assert.equal(topScoresMine(db, "Bea").length, 0)
+    assert.equal(gamesPlayed(db), 1)
+    addScore(db, { name: "Bea", score: 100, rules: "house", opponents: 1, when: "2026-11-01T00:00:00.000Z" }, { ip: "198.51.100.4", browser: "New/1" })
+    assert.deepEqual(topScores(db).map((row) => row.name), ["Bea"])
+    assert.deepEqual(topScoresAll(db).map((row) => row.name), ["Ada", "Bea"])
+    assert.equal(gamesPlayed(db), 2)
+    db.close()
+    const again = openScores(file)
+    assert.equal(again.prepare("SELECT COUNT(*) AS played FROM scores").get().played, 2)
+    again.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("each score board is a different top ten and yours filters by name", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canasta-boards-"))
+  const server = startServer({ port: 0, host: "127.0.0.1", dbPath: join(dir, "scores.sqlite") })
+  const previous = globalThis.fetch
+  try {
+    await listen(server)
+    const port = server.address().port
+    globalThis.fetch = (url, options) => previous(new URL(url, `http://127.0.0.1:${port}`), options)
+    const post = (name, score, agent) =>
+      fetch(`http://127.0.0.1:${port}/api/scores`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "user-agent": agent },
+        body: JSON.stringify({ name, score, rules: "house", opponents: 1, when: `2026-11-02T00:00:${String(score).padStart(2, "0")}.000Z` }),
+      })
+    assert.equal((await post("Ada", 500, "Phone/1")).status, 201)
+    assert.equal((await post("Ada", 250, "Laptop/2")).status, 201)
+    assert.equal((await post("Bea", 800, "Laptop/2")).status, 201)
+    server.db.prepare("UPDATE scores SET version = '' WHERE score = ?").run(500)
+    const listed = await fetch(`http://127.0.0.1:${port}/api/scores?name=Ada`)
+    const body = await listed.json()
+    assert.deepEqual(body.scores.map((row) => row.name), ["Bea", "Ada"])
+    assert.deepEqual(body.all.map((row) => row.name + row.score), ["Bea800", "Ada500", "Ada250"])
+    assert.deepEqual(body.mine.map((row) => row.score), [500, 250])
+    assert.equal(body.played, 3)
+    assert.equal(body.version, scoreRevision)
+    assert.equal(JSON.stringify(body).includes("127.0.0.1"), false)
+    assert.equal(JSON.stringify(body).includes("Phone/1"), false)
+    const other = await fetch(`http://127.0.0.1:${port}/api/scores?name=Bea`)
+    const theirs = await other.json()
+    assert.deepEqual(theirs.mine.map((row) => row.name), ["Bea"])
+    assert.deepEqual(theirs.scores.map((row) => row.name), ["Bea", "Ada"])
+    const seen = await fetchScores("Ada")
+    assert.equal(seen.version, scoreRevision)
+    assert.equal(seen.played, 3)
+    assert.deepEqual(seen.mine.map((row) => row.score), [500, 250])
+    assert.deepEqual(seen.all.map((row) => row.name), ["Bea", "Ada", "Ada"])
+  } finally {
+    globalThis.fetch = previous
+    await new Promise((resolve) => server.close(resolve))
+    server.db.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
