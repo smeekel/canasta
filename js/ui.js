@@ -769,7 +769,7 @@ function activeBoard() {
 
 function boardCopy() {
   if (ui.boardTab === "mine") {
-    return { note: "Your ten best scores, from every version.", empty: "You have not posted a score yet." }
+    return { note: `Best scores saved as ${playingName(ui.name)}.`, empty: "No scores saved under this name yet." }
   }
   if (ui.boardTab === "all") {
     return { note: "Best scores from every version of the game.", empty: "Finish a match to post a score." }
@@ -1283,22 +1283,43 @@ function rememberScore() {
     .catch(() => queueScore(localStorage, entry))
 }
 
+let boardGen = 0
+
+function paintScores() {
+  const section = document.querySelector(".top-scores")
+  if (!section) return
+  const holder = document.createElement("template")
+  holder.innerHTML = topScoresHtml()
+  section.replaceWith(holder.content.firstElementChild)
+}
+
 async function syncBoard() {
+  const gen = ++boardGen
+  const name = playingName(ui.name)
   try {
     await flushOutbox(localStorage)
-    const board = await fetchScores()
+    if (gen !== boardGen) return
+    const board = await fetchScores(name)
+    if (gen !== boardGen) return
     ui.board = board.scores
     ui.boardAll = board.all
     ui.boardMine = board.mine
     ui.played = board.played
     ui.boardNote = ""
   } catch {
+    if (gen !== boardGen) return
     if (!ui.board) ui.board = []
     if (!ui.boardAll) ui.boardAll = []
     if (!ui.boardMine) ui.boardMine = []
     ui.boardNote = "Scores could not be loaded."
   }
-  if (ui.screen === "lobby") render()
+  if (ui.screen !== "lobby") return
+  const typing = document.activeElement?.matches?.("[data-act=name]")
+  if (typing) {
+    if (ui.boardTab === "mine") paintScores()
+    return
+  }
+  render()
 }
 
 function notePhase() {
@@ -1702,7 +1723,9 @@ publishVersion()
 function onName(event) {
   const node = event.target.closest("[data-act=name]")
   if (!node) return
+  const previous = playingName(ui.name)
   ui.name = writeName(localStorage, node.value.slice(0, NAME_LIMIT))
+  if (playingName(ui.name) !== previous) syncBoard()
 }
 
 app.addEventListener("click", onClick)

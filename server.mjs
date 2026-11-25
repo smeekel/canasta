@@ -109,7 +109,7 @@ export function startServer({ port = 8080, host = "127.0.0.1", dbPath = defaultD
         sendJson(response, 200, {
           scores: topScores(db),
           all: topScoresAll(db),
-          mine: topScoresMine(db, ip, browser),
+          mine: topScoresMine(db, url.searchParams.get("name")),
           played: gamesPlayed(db),
           version: scoreRevision,
         })

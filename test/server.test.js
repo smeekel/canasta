@@ -56,6 +56,8 @@ test("a finished game is stored with address and browser and the board stays pub
     assert.equal(body.version, scoreRevision)
     assert.deepEqual(body.all, body.scores)
     assert.deepEqual(body.mine, [])
+    const named = await fetch(`http://127.0.0.1:${port}/api/scores?name=${encodeURIComponent(" Ada ")}`)
+    assert.deepEqual((await named.json()).mine, body.scores)
     const profile = server.db.prepare("SELECT name, ip, browser FROM profiles").get()
     assert.equal(profile.name, "Ada")
     assert.equal(profile.ip, "127.0.0.1")
@@ -237,8 +239,9 @@ test("startup adds a version column and leaves older scores off the current boar
     assert.equal(storedScores(db)[0].version, "")
     assert.equal(topScores(db).length, 0)
     assert.equal(topScoresAll(db)[0].score, 900)
-    assert.equal(topScoresMine(db, "203.0.113.9", "OldBrowser/1")[0].name, "Ada")
-    assert.equal(topScoresMine(db, "203.0.113.9", "SomeoneElse/2").length, 0)
+    assert.equal(topScoresMine(db, "Ada")[0].name, "Ada")
+    assert.equal(topScoresMine(db, " Ada ")[0].name, "Ada")
+    assert.equal(topScoresMine(db, "Bea").length, 0)
     assert.equal(gamesPlayed(db), 1)
     addScore(db, { name: "Bea", score: 100, rules: "house", opponents: 1, when: "2026-11-01T00:00:00.000Z" }, { ip: "198.51.100.4", browser: "New/1" })
     assert.deepEqual(topScores(db).map((row) => row.name), ["Bea"])
@@ -253,7 +256,7 @@ test("startup adds a version column and leaves older scores off the current boar
   }
 })
 
-test("each score board is a different top ten and yours stays private", async () => {
+test("each score board is a different top ten and yours filters by name", async () => {
   const dir = mkdtempSync(join(tmpdir(), "canasta-boards-"))
   const server = startServer({ port: 0, host: "127.0.0.1", dbPath: join(dir, "scores.sqlite") })
   const previous = globalThis.fetch
@@ -265,28 +268,30 @@ test("each score board is a different top ten and yours stays private", async ()
       fetch(`http://127.0.0.1:${port}/api/scores`, {
         method: "POST",
         headers: { "content-type": "application/json", "user-agent": agent },
-        body: JSON.stringify({ name, score, rules: "house", opponents: 1, when: "2026-11-02T00:00:00.000Z" }),
+        body: JSON.stringify({ name, score, rules: "house", opponents: 1, when: `2026-11-02T00:00:${String(score).padStart(2, "0")}.000Z` }),
       })
     assert.equal((await post("Ada", 500, "Phone/1")).status, 201)
+    assert.equal((await post("Ada", 250, "Laptop/2")).status, 201)
     assert.equal((await post("Bea", 800, "Laptop/2")).status, 201)
-    server.db.prepare("UPDATE scores SET version = '' WHERE name = ?").run("Ada")
-    const listed = await fetch(`http://127.0.0.1:${port}/api/scores`, { headers: { "user-agent": "Phone/1" } })
+    server.db.prepare("UPDATE scores SET version = '' WHERE score = ?").run(500)
+    const listed = await fetch(`http://127.0.0.1:${port}/api/scores?name=Ada`)
     const body = await listed.json()
-    assert.deepEqual(body.scores.map((row) => row.name), ["Bea"])
-    assert.deepEqual(body.all.map((row) => row.name), ["Bea", "Ada"])
-    assert.deepEqual(body.mine.map((row) => row.name), ["Ada"])
-    assert.equal(body.played, 2)
+    assert.deepEqual(body.scores.map((row) => row.name), ["Bea", "Ada"])
+    assert.deepEqual(body.all.map((row) => row.name + row.score), ["Bea800", "Ada500", "Ada250"])
+    assert.deepEqual(body.mine.map((row) => row.score), [500, 250])
+    assert.equal(body.played, 3)
     assert.equal(body.version, scoreRevision)
     assert.equal(JSON.stringify(body).includes("127.0.0.1"), false)
     assert.equal(JSON.stringify(body).includes("Phone/1"), false)
-    const other = await fetch(`http://127.0.0.1:${port}/api/scores`, { headers: { "user-agent": "Laptop/2" } })
+    const other = await fetch(`http://127.0.0.1:${port}/api/scores?name=Bea`)
     const theirs = await other.json()
     assert.deepEqual(theirs.mine.map((row) => row.name), ["Bea"])
-    assert.deepEqual(theirs.scores.map((row) => row.name), ["Bea"])
-    const seen = await fetchScores()
+    assert.deepEqual(theirs.scores.map((row) => row.name), ["Bea", "Ada"])
+    const seen = await fetchScores("Ada")
     assert.equal(seen.version, scoreRevision)
-    assert.equal(seen.played, 2)
-    assert.deepEqual(seen.all.map((row) => row.name), ["Bea", "Ada"])
+    assert.equal(seen.played, 3)
+    assert.deepEqual(seen.mine.map((row) => row.score), [500, 250])
+    assert.deepEqual(seen.all.map((row) => row.name), ["Bea", "Ada", "Ada"])
   } finally {
     globalThis.fetch = previous
     await new Promise((resolve) => server.close(resolve))

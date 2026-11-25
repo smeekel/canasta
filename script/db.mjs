@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { normalizeScore } from "../js/scores.js"
+import { normalizeScore, playingName } from "../js/scores.js"
 import { revision } from "../js/version.js"
 
 export { revision as scoreRevision }
@@ -77,16 +77,16 @@ export function addScore(db, entry, { ip = "", browser = "", origin = "game" } =
   return info.changes > 0
 }
 
-function listScores(db, { version, ip, browser, limit = 10 } = {}) {
+function listScores(db, { version, name, limit = 10 } = {}) {
   const where = []
   const params = []
   if (version) {
     where.push("version = ?")
     params.push(version)
   }
-  if (ip || browser) {
-    where.push("ip = ? AND browser = ?")
-    params.push(String(ip), String(browser))
+  if (name) {
+    where.push("name = ?")
+    params.push(name)
   }
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : ""
   return db
@@ -115,9 +115,8 @@ export function topScoresAll(db, limit = 10) {
   return listScores(db, { limit })
 }
 
-export function topScoresMine(db, ip, browser, limit = 10) {
-  if (!String(ip || "").trim() || !String(browser || "").trim()) return []
-  return listScores(db, { ip, browser, limit })
+export function topScoresMine(db, name, limit = 10) {
+  return listScores(db, { name: playingName(name), limit })
 }
 
 export function gamesPlayed(db) {

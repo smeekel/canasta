@@ -91,8 +91,9 @@ function scoreList(value) {
   return Array.isArray(value) ? value.map(normalizeScore).filter(Boolean) : []
 }
 
-export async function fetchScores() {
-  const response = await fetch("/api/scores", { cache: "no-store" })
+export async function fetchScores(name = "") {
+  const query = new URLSearchParams({ name: playingName(name) })
+  const response = await fetch(`/api/scores?${query}`, { cache: "no-store" })
   if (!response.ok) throw new Error("Scores could not be loaded.")
   const body = await response.json()
   const played = Number(body.played)
