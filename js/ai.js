@@ -480,7 +480,8 @@ function closeAction(state) {
   if (ally && ally.hand.length > 9 && state.stock.length > 8) return null
   const blacks = hand.filter(isBlackThree)
   const others = hand.filter((card) => !isBlackThree(card))
-  const blackOk = blacks.length === 0 || (blacks.length >= 3 && blacks.length <= 4)
+  const blackOk = blacks.length === 0 || (blacks.length >= 3 && blacks.length <= 4) || blacks.length === 7
+  if (!others.length && blacks.length === 8) return { type: "goOut", cardId: blacks[0].id }
   if (!others.length && blackOk) return { type: "goOut", cardId: null }
   if (others.length === 1 && blackOk) return { type: "goOut", cardId: others[0].id }
   return null
