@@ -202,8 +202,8 @@ export function describeMeld(cards, allowBlack = false, allowWild = false) {
   }
   if (blacks.length) {
     if (!allowBlack) return { ok: false, error: "Black threes can be melded only when you go out." }
-    if (blacks.length !== cards.length || blacks.length > 4) {
-      return { ok: false, error: "Meld 3 or 4 black threes, with no wild cards." }
+    if (blacks.length !== cards.length || (blacks.length > 4 && blacks.length !== 7)) {
+      return { ok: false, error: "Meld 3 or 4 black threes, or 7 as a canasta, with no wild cards." }
     }
     return { ok: true, rank: 3, black: true, points: blacks.length * 5, wildCount: 0, pure: false }
   }
@@ -1141,8 +1141,14 @@ function meld(state, cardIds) {
   if (!team.opened) return fail("Meet the opening count before playing other melds.")
   const pulled = pull(player.hand, cardIds)
   if (!pulled.ok) return fail(pulled.error)
-  const parsed = describeMeld(pulled.cards, false, isHouse(state))
+  const blackCanasta =
+    pulled.cards.length === 7 &&
+    pulled.cards.every(isBlackThree) &&
+    !hasFoot(player) &&
+    meetsGoOut(state, team.melds)
+  const parsed = describeMeld(pulled.cards, blackCanasta, isHouse(state))
   if (!parsed.ok) return fail(parsed.error)
+  if (parsed.black && team.melds.some((meld) => meld.rank === 3)) return fail("Your side already melded black threes.")
   const rank = parsed.rank === WILD_RANK ? nextWildRank(team) : parsed.rank
   if (parsed.rank === WILD_RANK) {
     if (team.melds.some((meld) => meld.rank < 0 && meld.cards.length < 7)) {
@@ -1158,7 +1164,7 @@ function meld(state, cardIds) {
   player.hand = player.hand.filter((card) => !cardIds.includes(card.id))
   team.melds.push({ rank, cards: pulled.cards })
   player.hasMelded = true
-  if (pulled.cards.length >= 7) state.turnState.madeCanasta = true
+  if (pulled.cards.length >= 7 && !parsed.black) state.turnState.madeCanasta = true
   const label = meldLabel(rank)
   if (!player.hand.length && pickupFoot(state, player)) {
     say(state, `${actor(player)} ${act(player, "meld", "melds")} ${label} and ${act(player, "pick up the foot", "picks up the foot")}.`)

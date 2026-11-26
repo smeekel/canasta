@@ -765,6 +765,92 @@ test("going out takes one pure, one mixed, and one wild canasta, and more are al
   assert.ok(line.delta >= 500 * 2 + 300 + 1500)
 })
 
+test("eight black threes become a canasta and a discard when the player can go out", () => {
+  const state = houseDeal(2, 3)
+  const blacks = extract(state, isBlackThree, 8)
+  const fours = extract(state, (card) => card.rank === 4, 7)
+  const sevens = extract(state, (card) => card.rank === 7, 6)
+  const joker = extract(state, (card) => card.rank === 0, 1)
+  const twos = extract(state, (card) => card.rank === 2, 7)
+  scoop(state)
+  assert.equal(blacks.length, 8)
+  assert.equal(describeMeld(blacks.slice(0, 7)).ok, false)
+  assert.equal(describeMeld(blacks.slice(0, 5), true).ok, false)
+  assert.equal(describeMeld(blacks.slice(0, 6), true).ok, false)
+  assert.equal(describeMeld(blacks.slice(0, 7), true).rank, 3)
+
+  const player = state.players[0]
+  player.foot = []
+  player.hand = blacks.slice()
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: 4, cards: fours },
+    { rank: 7, cards: [...sevens, ...joker] },
+  ]
+  asMeld(state)
+  const early = apply(state, { type: "meld", cardIds: blacks.slice(0, 7).map((card) => card.id) })
+  assert.equal(early.ok, false)
+  assert.match(early.error, /go out/)
+  assert.equal(player.hand.length, 8)
+
+  state.teams[0].melds.push({ rank: -1, cards: twos })
+  const plan = planTurn(state)
+  assert.equal(plan.ok, true, plan.error)
+  assert.equal(plan.actions[0].type, "goOut")
+  assert.equal(blacks.some((card) => card.id === plan.actions[0].cardId), true)
+
+  const melded = apply(state, { type: "meld", cardIds: blacks.slice(0, 7).map((card) => card.id) })
+  assert.equal(melded.ok, true, melded.error)
+  assert.equal(player.hand.length, 1)
+  assert.equal(player.hand[0].id, blacks[7].id)
+  const laid = state.teams[0].melds.find((meld) => meld.rank === 3)
+  assert.equal(laid.cards.length, 7)
+  assert.equal(canastaBreakdown(state.teams[0].melds).pure, 1)
+
+  const out = apply(state, { type: "discard", cardId: blacks[7].id })
+  assert.equal(out.ok, true, out.error)
+  assert.equal(state.phase, "handEnd")
+  assert.equal(state.endReason, "out")
+  assert.equal(state.discard.at(-1).id, blacks[7].id)
+  const line = state.handSummary.lines.find((item) => item.team === 0)
+  assert.equal(line.natural, 1)
+  assert.equal(line.mixed, 1)
+  assert.equal(line.wild, 1)
+})
+
+test("seven black threes alone go out with no discard", () => {
+  const state = houseDeal(2, 4)
+  const blacks = extract(state, isBlackThree, 7)
+  const fours = extract(state, (card) => card.rank === 4, 7)
+  const sevens = extract(state, (card) => card.rank === 7, 6)
+  const joker = extract(state, (card) => card.rank === 0, 1)
+  const twos = extract(state, (card) => card.rank === 2, 7)
+  scoop(state)
+  const player = state.players[0]
+  player.foot = []
+  player.hand = blacks.slice()
+  state.discard = []
+  state.teams[0].opened = true
+  state.teams[0].melds = [
+    { rank: 4, cards: fours },
+    { rank: 7, cards: [...sevens, ...joker] },
+    { rank: -1, cards: twos },
+  ]
+  asMeld(state)
+  const plan = planTurn(state)
+  assert.equal(plan.ok, true, plan.error)
+  assert.deepEqual(plan.actions[0], { type: "goOut", cardId: null })
+
+  const out = apply(state, { type: "goOut", cardId: null })
+  assert.equal(out.ok, true, out.error)
+  assert.equal(state.phase, "handEnd")
+  assert.equal(state.endReason, "out")
+  assert.equal(player.hand.length, 0)
+  assert.equal(state.discard.length, 0)
+  assert.equal(state.teams[0].melds.find((meld) => meld.rank === 3).cards.length, 7)
+  assert.equal(canastaBreakdown(state.teams[0].melds).pure, 1)
+})
+
 test("a completed canasta refuses an eighth card", () => {
   const n = (rank, suit, deck) => ({ id: rank * 100 + suit.charCodeAt(0) + deck, rank, suit, deck })
   const suits = ["s", "h", "d", "c"]

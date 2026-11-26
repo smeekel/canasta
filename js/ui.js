@@ -163,14 +163,15 @@ function redMarks(cards) {
 }
 
 function meldKind(meld) {
-  if (meld.rank === 3 || meld.cards.length < 7) return ""
+  if (meld.rank === 3) return meld.cards.length >= 7 ? "Black three canasta" : ""
+  if (meld.cards.length < 7) return ""
   if (meld.rank < 0) return "Wild canasta"
   if (meld.cards.some(isWild)) return "Mixed canasta"
   return "Pure canasta"
 }
 
 function meldView(meld, mine, pick, extending = false) {
-  const canasta = meld.cards.length >= 7 && meld.rank !== 3
+  const canasta = meld.cards.length >= 7
   const mixed = canasta && meld.rank >= 0 && meld.cards.some(isWild)
   const wild = canasta && meld.rank < 0
   const focused = (mine && ui.focusRank === meld.rank) || extending
@@ -351,6 +352,21 @@ function canUndo() {
   return match.turn === 0 && match.phase === "meld" && !!match.turnState?.snapshot
 }
 
+function wholeHandBlackOut() {
+  if (!canLeaveNow() || ui.staged.length) return false
+  const hand = myHand()
+  if (!hand.length || !hand.every(isBlackThree)) return false
+  if (myTeam().melds.some((meld) => meld.rank === 3)) return false
+  return describeMeld(hand, true).ok
+}
+
+function blackCanastaDiscard(card) {
+  if (!canLeaveNow() || !isBlackThree(card)) return false
+  if (myTeam().melds.some((meld) => meld.rank === 3)) return false
+  const rest = myHand().filter((item) => item.id !== card.id)
+  return rest.length === 7 && rest.every(isBlackThree)
+}
+
 function canLeaveNow() {
   const team = myTeam()
   if (match.rules === "house") return meetsGoOut(match, team.melds) && !me().foot.length
@@ -393,9 +409,14 @@ function meldCheck(cards) {
   ) {
     return { ok: false, error: "Add to the meld you already have. A new one starts after that canasta is complete." }
   }
-  if (canLeaveNow() && cards.length === myHand().length && cards.every(isBlackThree)) {
+  if (canLeaveNow() && cards.length > 1 && cards.every(isBlackThree) && !myTeam().melds.some((meld) => meld.rank === 3)) {
     const blacks = describeMeld(cards, true)
-    if (blacks.ok && blacks.black) return { ok: true, error: "", go: true }
+    if (blacks.ok && blacks.black && cards.length === myHand().length) return { ok: true, error: "", go: true }
+    if (blacks.ok && blacks.black && cards.length === 7) return { ok: true, error: "" }
+    if (myHand().length === 7 && myHand().every(isBlackThree)) {
+      return { ok: false, error: "Select all seven black threes to go out." }
+    }
+    return { ok: false, error: "Select 7 black threes for a canasta, then discard the last one." }
   }
   const parsed = describeMeld(cards, false, match.rules === "house")
   return parsed.ok ? { ok: true, error: "" } : { ok: false, error: parsed.error || "" }
@@ -413,13 +434,15 @@ function handChoice(cards) {
     const blocked = ui.staged.length > 0
     const add = !blocked && myTeam().opened && layoffRank(cards) != null
     const wildAdd = blocked ? null : wildAddChoice(cards)
+    const blackOut = !blocked && blackCanastaDiscard(cards[0])
     const buttons = []
     if (add) buttons.push({ act: "meld-btn", label: "Add", primary: true })
     if (wildAdd) buttons.push(wildAdd)
+    if (blackOut) buttons.push({ act: "go", label: "Go out", primary: true })
     buttons.push({
       act: "discard-btn",
       label: "Discard",
-      primary: !add && !wildAdd && !blocked,
+      primary: !add && !wildAdd && !blocked && !blackOut,
       disabled: blocked,
       title: blocked ? "Open the staged melds before discarding." : "",
     })
@@ -507,6 +530,7 @@ function hint() {
       }
       if (targets.length > 1) return "Add the wild card to one of the highlighted melds."
     }
+    if (wholeHandBlackOut() && !cards.length) return "Meld these black threes to go out."
     if (cards.length > 1) {
       const check = ui.taking || !myTeam().opened ? stageCheck(cards) : meldCheck(cards)
       if (!check.ok && check.error) return check.error
@@ -608,7 +632,7 @@ function rulesHtml() {
       <li>You are dealt 13 cards and a face-down foot of 13. Draw two cards, meld if you want, then discard one.</li>
       <li>Playing the last card of your hand picks up the foot. Discarding that card ends the turn. Melding it lets you continue.</li>
       <li>A pure canasta is seven cards of one rank and no wilds (500). A mixed canasta includes a wild (300). A wild canasta is seven wild cards (1,500). A finished canasta is frozen. You may start another of the same rank only after it is complete, so one unfinished meld of each rank is open at a time.</li>
-      <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
+      <li>To go out, have at least one of each canasta, then play every card in your hand and your foot. On that turn, seven black threes can be melded as a canasta. Go out on those seven alone, or discard one leftover black three. A hand also ends when the stock is used up. The highest score after four hands wins.</li>
       <li>The first meld must total 50 on the first hand, 90 on the second, 120 on the third, and 150 on the fourth.</li>
       <li>You may take the discard pile when the top card starts a new meld. You may also take it when the top card matches an unfinished meld, if your hand has at least two cards of that rank to add. A wild card can be included. The meld, the discard, and those cards must fit in 7. A finished canasta stays frozen, and that rank can start another meld once it is complete. A frozen pile still needs a natural pair from your hand. Red threes score 100 each, or 200 each if you collect every red three in the pack.</li>
     </ul>`
@@ -882,7 +906,7 @@ function tableHtml() {
     })
     .join("")
   const go =
-    yourTurn && match.phase === "meld" && !hand.length && !ui.staged.length && canLeaveNow()
+    yourTurn && match.phase === "meld" && !ui.staged.length && ((!hand.length && canLeaveNow()) || wholeHandBlackOut())
       ? pop(popButton("go", "Go out", { primary: true }), "pop-inline")
       : ""
   const finished =
@@ -1450,7 +1474,8 @@ function meldSelected() {
     doAction({ type: "layoff", cardIds: cards.map((card) => card.id), rank })
     return
   }
-  const parsed = describeMeld(cards, false, match.rules === "house")
+  const goingBlack = canLeaveNow() && cards.length === 7 && cards.every(isBlackThree)
+  const parsed = describeMeld(cards, goingBlack, match.rules === "house")
   if (!parsed.ok) {
     ui.error = ui.focusRank == null && cards.every(isWild) ? "Tap the meld that should receive the wild card." : parsed.error
     render()
@@ -1488,6 +1513,7 @@ function goOut() {
   const hand = myHand()
   const cards = selectedCards()
   if (!hand.length) return doAction({ type: "goOut", cardId: null })
+  if (wholeHandBlackOut()) return doAction({ type: "goOut", cardId: null })
   if (cards.length === 1) return doAction({ type: "goOut", cardId: cards[0].id })
   if (cards.length === hand.length && hand.every(isBlackThree)) return doAction({ type: "goOut", cardId: null })
   if (!cards.length && (hand.every(isBlackThree) || hand.length === 1)) {
